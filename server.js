@@ -1,0 +1,31 @@
+import express from 'express';
+import connectDB from './config/db.js';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import authRoutes from './routes/auth.js';
+import adminRoutes from './routes/adminRoutes.js';
+import courseRoutes from './routes/courseRoutes.js';
+import moduleRoutes from './routes/moduleRoutes.js';
+import contentRoutes from './routes/contentRoutes.js';
+import assessmentRoutes from './routes/assessmentRoutes.js';
+dotenv.config();
+
+const app = express();
+
+// Connect Database
+connectDB();
+
+// Init Middleware
+app.use(express.json({ extended: false }));
+app.use(cors());
+
+// Define Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/courses', courseRoutes);
+app.use('/api/modules', moduleRoutes);
+app.use('/api/content', contentRoutes);
+app.use('/api/assessments', assessmentRoutes);
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
