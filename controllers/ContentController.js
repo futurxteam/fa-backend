@@ -3,17 +3,24 @@ import Module from '../models/Module.js';
 import Course from '../models/Course.js';
 
 // Create Content (Step 4)
+
 export const createContent = async (req, res) => {
     try {
-        const {
+        let {
             moduleId,
             title,
             contentType,
-            contentUrl,
             scheduledDate,
             duration,
             order
         } = req.body;
+
+        // Basic validation
+        if (!moduleId || !title) {
+            return res.status(400).json({
+                message: 'Module ID and title are required'
+            });
+        }
 
         // Verify module exists
         const module = await Module.findById(moduleId).populate('course');
@@ -23,9 +30,29 @@ export const createContent = async (req, res) => {
         }
 
         // Check if course is editable
-        if (module.course.status !== 'draft' && module.course.status !== 'rejected') {
+if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
             return res.status(400).json({
                 message: 'Cannot edit course in current status'
+            });
+        }
+
+        let contentUrl = '';
+
+        // Case 1: Video uploaded via Cloudinary
+        if (req.file) {
+            contentUrl = req.file.path;
+            contentType = 'video'; // force correct type
+        }
+
+        // Case 2: URL-based content
+        else if (req.body.contentUrl) {
+            contentUrl = req.body.contentUrl;
+        }
+
+        // If still empty → reject
+        if (!contentUrl) {
+            return res.status(400).json({
+                message: 'Content URL or video file is required'
             });
         }
 
@@ -35,8 +62,8 @@ export const createContent = async (req, res) => {
             contentType,
             contentUrl,
             scheduledDate,
-            duration,
-            order
+            duration: duration || 0,
+            order: order || 1
         });
 
         await content.save();
@@ -57,12 +84,16 @@ export const createContent = async (req, res) => {
     }
 };
 
+
+
 // Get Content by Module
 export const getContentByModule = async (req, res) => {
     try {
         const { moduleId } = req.params;
 
-        const contents = await Content.find({ module: moduleId }).sort({ order: 1 });
+        const contents = await Content.find({ module: moduleId })
+            .sort({ order: 1 })
+            .lean();
 
         res.json({ contents });
 
@@ -72,11 +103,13 @@ export const getContentByModule = async (req, res) => {
     }
 };
 
+
 // Update Content
+
 export const updateContent = async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
+        const { title, contentUrl, duration, order } = req.body;
 
         const content = await Content.findById(id).populate({
             path: 'module',
@@ -87,14 +120,19 @@ export const updateContent = async (req, res) => {
             return res.status(404).json({ message: 'Content not found' });
         }
 
-        // Check if course is editable
-        if (content.module.course.status !== 'draft' && content.module.course.status !== 'rejected') {
+        if (content.module.course.status !== 'draft' &&
+            content.module.course.status !== 'rejected') {
             return res.status(400).json({
-                message: 'Cannot edit content - course is not in draft status'
+                message: 'Cannot edit content - course is not editable'
             });
         }
 
-        Object.assign(content, updates);
+        // Only allow safe fields
+        if (title !== undefined) content.title = title;
+        if (contentUrl !== undefined) content.contentUrl = contentUrl;
+        if (duration !== undefined) content.duration = duration;
+        if (order !== undefined) content.order = order;
+
         await content.save();
 
         res.json({
@@ -108,7 +146,7 @@ export const updateContent = async (req, res) => {
     }
 };
 
-// Delete Content
+
 export const deleteContent = async (req, res) => {
     try {
         const { id } = req.params;
@@ -122,14 +160,14 @@ export const deleteContent = async (req, res) => {
             return res.status(404).json({ message: 'Content not found' });
         }
 
-        // Check if course is editable
-        if (content.module.course.status !== 'draft' && content.module.course.status !== 'rejected') {
+        if (content.module.course.status !== 'draft' &&
+            content.module.course.status !== 'rejected') {
             return res.status(400).json({
-                message: 'Cannot delete content - course is not in draft status'
+                message: 'Cannot delete content - course is not editable'
             });
         }
 
-        await Content.findByIdAndDelete(id);
+        await content.deleteOne();
 
         res.json({ message: 'Content deleted successfully' });
 

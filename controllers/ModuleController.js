@@ -1,6 +1,6 @@
 import Module from '../models/Module.js';
 import Course from '../models/Course.js';
-
+import Content from '../models/Content.js';
 // Create Module (Step 3)
 export const createModule = async (req, res) => {
     try {
@@ -63,16 +63,22 @@ export const getModulesByCourse = async (req, res) => {
 
         const modules = await Module.find({ course: courseId })
             .sort({ order: 1 })
-            .populate({
-                path: 'content',
-                options: { sort: { order: 1 } }
-            });
+            .lean();
 
-        res.json({ modules });
+        for (let module of modules) {
+            const contents = await Content.find({ module: module._id })
+                .sort({ order: 1 });
+            module.content = contents;
+        }
+
+        return res.json({ modules }); // only one response
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        return res.status(500).json({
+            message: 'Server error',
+            error: error.message
+        });
     }
 };
 

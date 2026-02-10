@@ -273,7 +273,6 @@ export const getStudentCourseDetails = async (req, res) => {
         const { courseId } = req.params;
         const studentId = req.user._id;
 
-        // Get course details
         const course = await Course.findById(courseId)
             .populate('faculty', 'name email');
 
@@ -281,7 +280,6 @@ export const getStudentCourseDetails = async (req, res) => {
             return res.status(404).json({ message: 'Course not found' });
         }
 
-        // Check if student is enrolled
         const Enrollment = (await import('../models/Enrollment.js')).default;
         const enrollment = await Enrollment.findOne({
             student: studentId,
@@ -290,19 +288,17 @@ export const getStudentCourseDetails = async (req, res) => {
 
         const isEnrolled = !!enrollment;
 
-        // Get modules with content
         const Module = (await import('../models/Module.js')).default;
         const Content = (await import('../models/Content.js')).default;
 
         let modules = await Module.find({ course: courseId })
             .sort({ order: 1 });
 
-        // If not enrolled, only show free modules
+        // Only filter modules, not content
         if (!isEnrolled) {
             modules = modules.filter(module => module.isFree);
         }
 
-        // Populate content for each module
         const modulesWithContent = await Promise.all(
             modules.map(async (module) => {
                 const content = await Content.find({ module: module._id })
@@ -310,7 +306,7 @@ export const getStudentCourseDetails = async (req, res) => {
 
                 return {
                     ...module.toObject(),
-                    content: isEnrolled ? content : [] // Hide content if not enrolled
+                    content: (isEnrolled || module.isFree) ? content : []
                 };
             })
         );
@@ -327,6 +323,7 @@ export const getStudentCourseDetails = async (req, res) => {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
+
 
 // Enroll student in course
 export const enrollInCourse = async (req, res) => {
