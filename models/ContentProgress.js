@@ -11,9 +11,20 @@ const ContentProgressSchema = new mongoose.Schema({
         ref: 'Content',
         required: true
     },
-    watchedSeconds: {
+    lastPosition: {
         type: Number,
-        default: 0
+        default: 0,
+        description: 'Last watched position in seconds (for resume)'
+    },
+    totalWatchTime: {
+        type: Number,
+        default: 0,
+        description: 'Total cumulative unique seconds watched'
+    },
+    watchedSegments: {
+        type: [[Number]],
+        default: [],
+        description: 'Array of [start, end] time ranges that have been watched'
     },
     duration: {
         type: Number,
@@ -22,6 +33,11 @@ const ContentProgressSchema = new mongoose.Schema({
     completed: {
         type: Boolean,
         default: false
+    },
+    // Keep for backward compatibility
+    watchedSeconds: {
+        type: Number,
+        default: 0
     }
 }, { timestamps: true });
 
