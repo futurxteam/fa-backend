@@ -1,40 +1,23 @@
 import mongoose from 'mongoose';
-
 const SubmissionSchema = new mongoose.Schema({
-    student: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true
-    },
     assessment: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Assessment",
-        required: true
+        ref: "Assessment"
     },
-    answers: [
-        {
-            questionId: {
-                type: String,
-                required: true
-            },
-            selectedAnswer: {
-                type: String
-            }
-        }
-    ],
-    score: {
-        type: Number,
-        default: 0
+
+    student: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
     },
-    status: {
-        type: String,
-        enum: ["submitted", "graded"],
-        default: "submitted"
-    },
-    submittedAt: {
-        type: Date,
-        default: Date.now
-    }
-});
+
+    answers: [Number], // index-based answers
+
+    score: Number,
+    totalMarks: Number,
+    passed: Boolean,
+
+    attemptNumber: Number
+
+}, { timestamps: true });
 
 export default mongoose.model('Submission', SubmissionSchema);

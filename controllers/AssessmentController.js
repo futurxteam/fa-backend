@@ -1,153 +1,230 @@
 import Assessment from '../models/Assessment.js';
-import Course from '../models/Course.js';
+import Submission from '../models/Submission.js';
 
-// Create Assessment (Step 5)
+
+// ===============================
+// FACULTY CONTROLLERS
+// ===============================
+
+
+// ✅ Create Assessment
 export const createAssessment = async (req, res) => {
     try {
-        const {
-            courseId,
-            moduleId,
-            title,
-            assessmentType,
-            totalMarks,
-            passingMarks,
-            questions
-        } = req.body;
+        const assessment = await Assessment.create(req.body);
 
-        // Verify course exists and is editable
-        const course = await Course.findById(courseId);
-
-        if (!course) {
-            return res.status(404).json({ message: 'Course not found' });
-        }
-
-        if (course.status !== 'draft' && course.status !== 'rejected') {
-            return res.status(400).json({
-                message: 'Cannot edit course in current status'
-            });
-        }
-
-        const assessment = new Assessment({
-            course: courseId,
-            module: moduleId || null,
-            title,
-            assessmentType,
-            totalMarks,
-            passingMarks,
-            questions
-        });
-
-        await assessment.save();
-
-        // Update course step
-        course.currentStep = Math.max(course.currentStep, 5);
-        await course.save();
-
-        res.json({
-            message: 'Assessment created successfully',
+        res.status(201).json({
+            message: "Assessment created successfully",
             assessment
         });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+  console.error(error);  // 🔥 VERY IMPORTANT
+  res.status(500).json({ message: error.message });
+}
+
 };
 
-// Get Assessments by Course
+
+// ✅ Get Assessments By Course
 export const getAssessmentsByCourse = async (req, res) => {
     try {
         const { courseId } = req.params;
 
         const assessments = await Assessment.find({ course: courseId })
-            .populate('module', 'title order');
+            .sort({ createdAt: -1 });
 
-        res.json({ assessments });
+        res.json(assessments);
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ message: error.message });
     }
 };
 
-// Get Assessment by ID
+
+// ✅ Get Assessment (Faculty Full View)
 export const getAssessmentById = async (req, res) => {
     try {
-        const { id } = req.params;
-
-        const assessment = await Assessment.findById(id)
-            .populate('course', 'title')
-            .populate('module', 'title');
+        const assessment = await Assessment.findById(req.params.id);
 
         if (!assessment) {
-            return res.status(404).json({ message: 'Assessment not found' });
+            return res.status(404).json({ message: "Assessment not found" });
         }
 
-        res.json({ assessment });
+        res.json(assessment);
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ message: error.message });
     }
 };
 
-// Update Assessment
+
+// ✅ Update Assessment
 export const updateAssessment = async (req, res) => {
     try {
-        const { id } = req.params;
-        const updates = req.body;
+        const updated = await Assessment.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true, runValidators: true }
+        );
 
-        const assessment = await Assessment.findById(id).populate('course');
-
-        if (!assessment) {
-            return res.status(404).json({ message: 'Assessment not found' });
+        if (!updated) {
+            return res.status(404).json({ message: "Assessment not found" });
         }
-
-        // Check if course is editable
-        if (assessment.course.status !== 'draft' && assessment.course.status !== 'rejected') {
-            return res.status(400).json({
-                message: 'Cannot edit assessment - course is not in draft status'
-            });
-        }
-
-        Object.assign(assessment, updates);
-        await assessment.save();
 
         res.json({
-            message: 'Assessment updated successfully',
-            assessment
+            message: "Assessment updated successfully",
+            assessment: updated
         });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ message: error.message });
     }
 };
 
-// Delete Assessment
+
+// ✅ Delete Assessment
 export const deleteAssessment = async (req, res) => {
     try {
-        const { id } = req.params;
-
-        const assessment = await Assessment.findById(id).populate('course');
+        const assessment = await Assessment.findById(req.params.id);
 
         if (!assessment) {
-            return res.status(404).json({ message: 'Assessment not found' });
+            return res.status(404).json({ message: "Assessment not found" });
         }
 
-        // Check if course is editable
-        if (assessment.course.status !== 'draft' && assessment.course.status !== 'rejected') {
+        await assessment.deleteOne();
+
+        res.json({ message: "Assessment deleted successfully" });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+
+// ===============================
+// STUDENT CONTROLLERS
+// ===============================
+
+
+// ✅ Get Assessment (Student Safe Version)
+export const getAssessmentForStudent = async (req, res) => {
+    try {
+        const assessment = await Assessment.findById(req.params.id);
+
+        if (!assessment) {
+            return res.status(404).json({ message: "Assessment not found" });
+        }
+
+        const safeAssessment = assessment.toObject();
+
+        // Remove correct answers
+        safeAssessment.questions = safeAssessment.questions.map(q => {
+            delete q.correctOptionIndex;
+            return q;
+        });
+
+        res.json(safeAssessment);
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+// ✅ Submit Assessment (Auto Grade)
+export const submitAssessment = async (req, res) => {
+    try {
+        const { answers } = req.body;
+        const studentId = req.user.id;
+        const assessmentId = req.params.id;
+
+        const assessment = await Assessment.findById(assessmentId);
+
+        if (!assessment) {
+            return res.status(404).json({ message: "Assessment not found" });
+        }
+
+        // Check attempt limit
+        const previousAttempts = await Submission.countDocuments({
+            assessment: assessmentId,
+            student: studentId
+        });
+
+        if (previousAttempts >= assessment.attemptsAllowed) {
             return res.status(400).json({
-                message: 'Cannot delete assessment - course is not in draft status'
+                message: "Maximum attempts reached"
             });
         }
 
-        await Assessment.findByIdAndDelete(id);
+        // 🔥 Auto Grade
+        let score = 0;
+        let totalMarks = 0;
 
-        res.json({ message: 'Assessment deleted successfully' });
+        assessment.questions.forEach((question, index) => {
+            totalMarks += question.marks;
+
+            if (answers[index] === question.correctOptionIndex) {
+                score += question.marks;
+            }
+        });
+
+        const passed = score >= assessment.passingMarks;
+
+        const submission = await Submission.create({
+            assessment: assessmentId,
+            student: studentId,
+            answers,
+            score,
+            totalMarks,
+            passed,
+            attemptNumber: previousAttempts + 1
+        });
+
+        res.json({
+            message: "Assessment submitted successfully",
+            score,
+            totalMarks,
+            passed,
+            attemptNumber: submission.attemptNumber
+        });
 
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+// ✅ Get Student Results
+export const getStudentResults = async (req, res) => {
+    try {
+        const studentId = req.user.id;
+
+        const results = await Submission.find({
+            student: studentId
+        }).populate("assessment", "title assessmentType");
+
+        res.json(results);
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+
+// ✅ Get Assessments By Course (Student Safe List)
+export const getStudentAssessmentsByCourse = async (req, res) => {
+    try {
+        const { courseId } = req.params;
+
+        const assessments = await Assessment.find({
+            course: courseId
+        }).select("-questions.correctOptionIndex"); // hide answers
+
+        res.json(assessments);
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
     }
 };
