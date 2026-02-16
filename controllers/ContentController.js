@@ -3,7 +3,6 @@ import Module from '../models/Module.js';
 import Course from '../models/Course.js';
 
 // Create Content (Step 4)
-
 export const createContent = async (req, res) => {
     try {
         let {
@@ -12,25 +11,23 @@ export const createContent = async (req, res) => {
             contentType,
             scheduledDate,
             duration,
-            order
+            order,
+            pushOthers
         } = req.body;
 
-        // Basic validation
         if (!moduleId || !title) {
             return res.status(400).json({
                 message: 'Module ID and title are required'
             });
         }
 
-        // Verify module exists
         const module = await Module.findById(moduleId).populate('course');
 
         if (!module) {
             return res.status(404).json({ message: 'Module not found' });
         }
 
-        // Check if course is editable
-if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
+        if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
             return res.status(400).json({
                 message: 'Cannot edit course in current status'
             });
@@ -38,23 +35,65 @@ if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
 
         let contentUrl = '';
 
-        // Case 1: Video uploaded via Cloudinary
+        // ================= FILE UPLOAD =================
         if (req.file) {
             contentUrl = req.file.path;
-            contentType = 'video'; // force correct type
-        }
 
-        // Case 2: URL-based content
+            if (req.file.mimetype === "application/pdf") {
+                contentType = "pdf";
+            } else if (req.file.mimetype.startsWith("video/")) {
+                contentType = "video";
+            }
+        }
+        // ================= LINK =================
         else if (req.body.contentUrl) {
             contentUrl = req.body.contentUrl;
+            contentType = "link";
         }
 
-        // If still empty → reject
         if (!contentUrl) {
             return res.status(400).json({
-                message: 'Content URL or video file is required'
+                message: 'Content URL or file is required'
             });
         }
+
+        // ===================================================
+        // ✅ ORDER LOGIC
+        // ===================================================
+
+        // If no order passed → append at end
+        if (!order) {
+            const lastContent = await Content.findOne({ module: moduleId })
+                .sort({ order: -1 });
+
+            order = lastContent ? lastContent.order + 1 : 1;
+        } 
+        else {
+            order = Number(order);
+
+            const existing = await Content.findOne({
+                module: moduleId,
+                order: order
+            });
+
+            if (existing && !pushOthers) {
+                return res.status(400).json({
+                    message: 'Order already used. Set pushOthers=true to shift others.'
+                });
+            }
+
+            if (existing && pushOthers) {
+                await Content.updateMany(
+                    {
+                        module: moduleId,
+                        order: { $gte: order }
+                    },
+                    { $inc: { order: 1 } }
+                );
+            }
+        }
+
+        // ===================================================
 
         const content = new Content({
             module: moduleId,
@@ -63,15 +102,13 @@ if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
             contentUrl,
             scheduledDate,
             duration: duration || 0,
-            order: order || 1
+            order
         });
 
         await content.save();
 
-        // Update course step
-        const course = await Course.findById(module.course._id);
-        course.currentStep = Math.max(course.currentStep, 4);
-        await course.save();
+        module.course.currentStep = Math.max(module.course.currentStep, 4);
+        await module.course.save();
 
         res.json({
             message: 'Content created successfully',
@@ -80,10 +117,12 @@ if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({
+            message: 'Server error',
+            error: error.message
+        });
     }
 };
-
 
 
 // Get Content by Module
@@ -105,11 +144,10 @@ export const getContentByModule = async (req, res) => {
 
 
 // Update Content
-
 export const updateContent = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, contentUrl, duration, order } = req.body;
+        const { title, contentUrl, duration, order, pushOthers } = req.body;
 
         const content = await Content.findById(id).populate({
             path: 'module',
@@ -120,18 +158,44 @@ export const updateContent = async (req, res) => {
             return res.status(404).json({ message: 'Content not found' });
         }
 
-        if (content.module.course.status !== 'draft' &&
-            content.module.course.status !== 'rejected') {
+        if (!['draft', 'rejected'].includes(content.module.course.status)) {
             return res.status(400).json({
                 message: 'Cannot edit content - course is not editable'
             });
         }
 
-        // Only allow safe fields
+        // ========= HANDLE ORDER CHANGE =========
+        if (order !== undefined && order !== content.order) {
+
+            const existing = await Content.findOne({
+                module: content.module._id,
+                order: order,
+                _id: { $ne: content._id }
+            });
+
+            if (existing && !pushOthers) {
+                return res.status(400).json({
+                    message: 'Order already used. Set pushOthers=true to shift others.'
+                });
+            }
+
+            if (existing && pushOthers) {
+                await Content.updateMany(
+                    {
+                        module: content.module._id,
+                        order: { $gte: order }
+                    },
+                    { $inc: { order: 1 } }
+                );
+            }
+
+            content.order = order;
+        }
+
+        // ========= SAFE FIELD UPDATES =========
         if (title !== undefined) content.title = title;
         if (contentUrl !== undefined) content.contentUrl = contentUrl;
         if (duration !== undefined) content.duration = duration;
-        if (order !== undefined) content.order = order;
 
         await content.save();
 
@@ -146,7 +210,6 @@ export const updateContent = async (req, res) => {
     }
 };
 
-
 export const deleteContent = async (req, res) => {
     try {
         const { id } = req.params;
@@ -160,19 +223,33 @@ export const deleteContent = async (req, res) => {
             return res.status(404).json({ message: 'Content not found' });
         }
 
-        if (content.module.course.status !== 'draft' &&
-            content.module.course.status !== 'rejected') {
+        if (!['draft', 'rejected', 'published'].includes(content.module.course.status)) {
             return res.status(400).json({
                 message: 'Cannot delete content - course is not editable'
             });
         }
 
+        const moduleId = content.module._id;
+
+        // 1️⃣ Delete content
         await content.deleteOne();
 
-        res.json({ message: 'Content deleted successfully' });
+        // 2️⃣ Reorder remaining contents
+        const remainingContents = await Content.find({ module: moduleId })
+            .sort({ order: 1 });
+
+        for (let i = 0; i < remainingContents.length; i++) {
+            remainingContents[i].order = i + 1;
+            await remainingContents[i].save();
+        }
+
+        res.json({ message: 'Content deleted successfully and reordered' });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({
+            message: 'Server error',
+            error: error.message
+        });
     }
 };

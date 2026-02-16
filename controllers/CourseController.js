@@ -1,4 +1,9 @@
-import Course from '../models/Course.js';
+import Course from "../models/Course.js";
+import Enrollment from "../models/Enrollment.js";
+import Module from "../models/Module.js";
+import Content from "../models/Content.js";
+import Assessment from "../models/Assessment.js";
+import Submission from "../models/Submission.js";
 
 // Step 1: Create/Update Basic Details
 export const createOrUpdateStep1 = async (req, res) => {
@@ -112,6 +117,31 @@ export const submitForReview = async (req, res) => {
                 message: 'Course already submitted or published'
             });
         }
+if (course.unlockMode === "graded_unlock") {
+
+    const modules = await Module.find({ course: course._id });
+
+    for (let module of modules) {
+
+        if (module.order > 1) {
+
+            const previousModule = await Module.findOne({
+                course: course._id,
+                order: module.order - 1
+            });
+
+            const assessment = await Assessment.findOne({
+                module: previousModule?._id
+            });
+
+            if (!assessment) {
+                return res.status(400).json({
+                    message: `Module "${module.title}" cannot unlock because previous module has no assessment`
+                });
+            }
+        }
+    }
+}
 
         course.status = 'in_review';
         course.isComplete = true;
@@ -267,63 +297,122 @@ export const getPublishedCourses = async (req, res) => {
     }
 };
 
-// Get course details for students (with enrollment check)
 export const getStudentCourseDetails = async (req, res) => {
-    try {
-        const { courseId } = req.params;
-        const studentId = req.user._id;
+  try {
+    const { courseId } = req.params;
+    const studentId = req.user._id;
 
-        const course = await Course.findById(courseId)
-            .populate('faculty', 'name email');
+    const course = await Course.findById(courseId)
+      .populate("faculty", "name email");
 
-        if (!course || course.status !== 'published') {
-            return res.status(404).json({ message: 'Course not found' });
-        }
+    if (!course || course.status !== "published") {
+      return res.status(404).json({ message: "Course not found" });
+    }
 
-        const Enrollment = (await import('../models/Enrollment.js')).default;
-        const enrollment = await Enrollment.findOne({
-            student: studentId,
-            course: courseId
-        });
+    const enrollment = await Enrollment.findOne({
+      student: studentId,
+      course: courseId
+    });
 
-        const isEnrolled = !!enrollment;
+    const isEnrolled = !!enrollment;
 
-        const Module = (await import('../models/Module.js')).default;
-        const Content = (await import('../models/Content.js')).default;
+    let modules = await Module.find({ course: courseId })
+      .sort({ order: 1 });
 
-        let modules = await Module.find({ course: courseId })
-            .sort({ order: 1 });
+    if (!isEnrolled) {
+      modules = modules.filter(module => module.isFree);
+    }
 
-        // Only filter modules, not content
-        if (!isEnrolled) {
-            modules = modules.filter(module => module.isFree);
-        }
+    const modulesWithContent = [];
 
-        const modulesWithContent = await Promise.all(
-            modules.map(async (module) => {
-                const content = await Content.find({ module: module._id })
-                    .sort({ order: 1 });
+    for (let i = 0; i < modules.length; i++) {
 
-                return {
-                    ...module.toObject(),
-                    content: (isEnrolled || module.isFree) ? content : []
-                };
-            })
+      const module = modules[i];
+      let isLocked = false;
+
+      // 🔥 CHECK IF MODULE COMPLETED
+      const isCompleted = enrollment?.completedModules?.some(
+        m => m.toString() === module._id.toString()
+      ) || false;
+
+      // ================= LOCK LOGIC =================
+      if (isEnrolled && module.order !== 1) {
+
+        const previousModule = modules.find(
+          m => m.order === module.order - 1
         );
 
-        res.json({
-            course,
-            modules: modulesWithContent,
-            isEnrolled,
-            enrollment
-        });
+        if (previousModule) {
 
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+          // FREEFLOW → always unlocked
+          if (course.unlockMode === "freeflow") {
+            isLocked = false;
+          }
+
+          // SEQUENTIAL → unlock if previous module completed
+          if (course.unlockMode === "sequential") {
+
+            const previousCompleted = enrollment?.completedModules?.some(
+              m => m.toString() === previousModule._id.toString()
+            );
+
+            if (!previousCompleted) {
+              isLocked = true;
+            }
+          }
+
+          // GRADED UNLOCK → unlock only if passed assessment
+          if (course.unlockMode === "graded_unlock") {
+
+            const previousAssessment = await Assessment.findOne({
+              module: previousModule._id
+            });
+
+            // 🔥 If previous module has NO assessment → unlock
+            if (!previousAssessment) {
+              isLocked = false;
+            } else {
+              const passedAttempt = await Submission.findOne({
+                student: studentId,
+                assessment: previousAssessment._id,
+                passed: true
+              });
+
+              if (!passedAttempt) {
+                isLocked = true;
+              }
+            }
+          }
+        }
+      }
+
+      const content = await Content.find({
+        module: module._id
+      }).sort({ order: 1 });
+
+      modulesWithContent.push({
+        ...module.toObject(),
+        isLocked,
+        isCompleted, // 🔥 SEND THIS TO FRONTEND
+        content: (!isLocked && (isEnrolled || module.isFree)) ? content : []
+      });
     }
-};
 
+    res.json({
+      course,
+      modules: modulesWithContent,
+      isEnrolled,
+      enrollment
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
 
 // Enroll student in course
 export const enrollInCourse = async (req, res) => {

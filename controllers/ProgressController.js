@@ -1,4 +1,7 @@
-import ContentProgress from '../models/ContentProgress.js';
+import Content from "../models/Content.js";
+import ContentProgress from "../models/ContentProgress.js";
+import Module from "../models/Module.js";
+import Enrollment from "../models/Enrollment.js";
 
 // Helper function to merge overlapping time segments
 const mergeSegments = (segments) => {
@@ -32,63 +35,111 @@ const calculateTotalWatchTime = (segments) => {
         return total + (segment[1] - segment[0]);
     }, 0);
 };
+
+
 export const saveProgress = async (req, res) => {
-    try {
-        const { contentId, currentTime, duration, watchedSegment } = req.body;
-        const studentId = req.user._id;
+  try {
+    const { contentId, currentTime, duration, watchedSegment } = req.body;
+    const studentId = req.user._id;
 
-        // Build update operations
-        const update = {
-            lastPosition: currentTime,
-            duration: duration
-        };
-
-        // If we have a segment, add it to the array
-        if (watchedSegment && Array.isArray(watchedSegment) && watchedSegment.length === 2) {
-            update.$push = { watchedSegments: watchedSegment };
-        }
-
-        // Use findOneAndUpdate with upsert for atomic operation
-        let progress = await ContentProgress.findOneAndUpdate(
-            { student: studentId, content: contentId },
-            update,
-            { new: true, upsert: true, runValidators: true }
-        );
-
-        // Calculate merged segments and total watch time
-        const mergedSegments = mergeSegments(progress.watchedSegments || []);
-        const totalWatchTime = calculateTotalWatchTime(mergedSegments);
-        const percentage = duration > 0 ? totalWatchTime / duration : 0;
-        const completed = percentage >= 0.7;
-
-        // Update calculated fields in a separate atomic operation
-        progress = await ContentProgress.findByIdAndUpdate(
-            progress._id,
-            {
-                watchedSegments: mergedSegments,
-                totalWatchTime: totalWatchTime,
-                watchedSeconds: totalWatchTime,
-                completed: completed
-            },
-            { new: true }
-        );
-
-        res.json({
-            progress: {
-                lastPosition: progress.lastPosition,
-                totalWatchTime: progress.totalWatchTime,
-                completed: progress.completed,
-                percentage: Math.round(percentage * 100)
-            }
-        });
-
-    } catch (error) {
-        console.error('Progress save error:', error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+    const content = await Content.findById(contentId);
+    if (!content) {
+      return res.status(404).json({ message: "Content not found" });
     }
+
+    // =========================
+    // 1️⃣ SAVE BASIC PROGRESS
+    // =========================
+    const update = {
+      lastPosition: currentTime,
+      duration: duration
+    };
+
+    if (
+      watchedSegment &&
+      Array.isArray(watchedSegment) &&
+      watchedSegment.length === 2
+    ) {
+      update.$push = { watchedSegments: watchedSegment };
+    }
+
+    let progress = await ContentProgress.findOneAndUpdate(
+      { student: studentId, content: contentId },
+      update,
+      { new: true, upsert: true }
+    );
+
+    // =========================
+    // 2️⃣ MERGE SEGMENTS
+    // =========================
+    const mergedSegments = mergeSegments(progress.watchedSegments || []);
+    const totalWatchTime = calculateTotalWatchTime(mergedSegments);
+    const percentage = duration > 0 ? totalWatchTime / duration : 0;
+    const completed = percentage >= 0.7;
+
+    progress = await ContentProgress.findByIdAndUpdate(
+      progress._id,
+      {
+        watchedSegments: mergedSegments,
+        totalWatchTime,
+        watchedSeconds: totalWatchTime,
+        completed
+      },
+      { new: true }
+    );
+
+    // =====================================================
+    // 3️⃣ MODULE COMPLETION CHECK (ONLY WHEN VIDEO COMPLETES)
+    // =====================================================
+    if (completed && content.contentType === "video") {
+
+      const moduleVideos = await Content.find({
+        module: content.module,
+        contentType: "video"
+      });
+
+      const videoIds = moduleVideos.map(v => v._id);
+
+      const completedVideos = await ContentProgress.find({
+        student: studentId,
+        content: { $in: videoIds },
+        completed: true
+      });
+
+      if (
+        moduleVideos.length > 0 &&
+        completedVideos.length === moduleVideos.length
+      ) {
+
+        const moduleDoc = await Module.findById(content.module);
+
+        await Enrollment.updateOne(
+          { student: studentId, course: moduleDoc.course },
+          { $addToSet: { completedModules: content.module } }
+        );
+      }
+    }
+
+    // =========================
+    // 4️⃣ RESPONSE
+    // =========================
+    res.json({
+      progress: {
+        lastPosition: progress.lastPosition,
+        totalWatchTime: progress.totalWatchTime,
+        completed: progress.completed,
+        percentage: Math.round(percentage * 100)
+      }
+    });
+
+  } catch (error) {
+    console.error("Progress save error:", error);
+    res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
 };
-
-
 
 // Get progress for a specific content
 export const getProgress = async (req, res) => {

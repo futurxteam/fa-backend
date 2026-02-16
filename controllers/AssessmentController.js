@@ -133,6 +133,7 @@ export const getAssessmentForStudent = async (req, res) => {
 
 
 // ✅ Submit Assessment (Auto Grade)
+
 export const submitAssessment = async (req, res) => {
     try {
         const { answers } = req.body;
@@ -169,7 +170,12 @@ export const submitAssessment = async (req, res) => {
             }
         });
 
-        const passed = score >= assessment.passingMarks;
+        // ✅ CALCULATE PERCENTAGE (REQUIRED)
+        const percentage = totalMarks > 0
+            ? Math.round((score / totalMarks) * 100)
+            : 0;
+
+        const passed = percentage >= assessment.passingMarks;
 
         const submission = await Submission.create({
             assessment: assessmentId,
@@ -177,6 +183,7 @@ export const submitAssessment = async (req, res) => {
             answers,
             score,
             totalMarks,
+            percentage, // 🔥 REQUIRED FIELD
             passed,
             attemptNumber: previousAttempts + 1
         });
@@ -185,6 +192,7 @@ export const submitAssessment = async (req, res) => {
             message: "Assessment submitted successfully",
             score,
             totalMarks,
+            percentage,
             passed,
             attemptNumber: submission.attemptNumber
         });

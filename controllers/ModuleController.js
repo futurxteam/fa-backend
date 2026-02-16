@@ -2,9 +2,10 @@ import Module from '../models/Module.js';
 import Course from '../models/Course.js';
 import Content from '../models/Content.js';
 // Create Module (Step 3)
+
 export const createModule = async (req, res) => {
     try {
-        const {
+        let {
             courseId,
             title,
             description,
@@ -15,17 +16,28 @@ export const createModule = async (req, res) => {
             passingScore
         } = req.body;
 
-        // Verify course exists and is editable
         const course = await Course.findById(courseId);
 
         if (!course) {
             return res.status(404).json({ message: 'Course not found' });
         }
 
-        if (course.status !== 'draft' && course.status !== 'rejected') {
+        if (!['draft', 'rejected', 'published'].includes(course.status)) {
             return res.status(400).json({
                 message: 'Cannot edit course in current status'
             });
+        }
+
+        // 🔐 ENFORCE GRADED UNLOCK RULES
+        if (course.unlockMode === "graded_unlock") {
+
+            if (order === 1) {
+                unlockRule = "none";
+                passingScore = 0;
+            } else {
+                unlockRule = "pass_assessment";
+                passingScore = passingScore || 50;
+            }
         }
 
         const module = new Module({
@@ -41,7 +53,6 @@ export const createModule = async (req, res) => {
 
         await module.save();
 
-        // Update course step
         course.currentStep = Math.max(course.currentStep, 3);
         await course.save();
 
@@ -57,21 +68,40 @@ export const createModule = async (req, res) => {
 };
 
 // Get Modules for a Course
+
 export const getModulesByCourse = async (req, res) => {
     try {
         const { courseId } = req.params;
 
+        // Get modules first
         const modules = await Module.find({ course: courseId })
             .sort({ order: 1 })
             .lean();
 
-        for (let module of modules) {
-            const contents = await Content.find({ module: module._id })
-                .sort({ order: 1 });
-            module.content = contents;
-        }
+        const moduleIds = modules.map(m => m._id);
 
-        return res.json({ modules }); // only one response
+        // Get content by module IDs
+        const contents = await Content.find({
+            module: { $in: moduleIds }
+        })
+            .sort({ order: 1 })
+            .lean();
+
+        // Group content by module
+        const contentMap = {};
+
+        contents.forEach(c => {
+            const key = c.module.toString();
+            if (!contentMap[key]) contentMap[key] = [];
+            contentMap[key].push(c);
+        });
+
+        // Attach content to modules
+        modules.forEach(module => {
+            module.content = contentMap[module._id.toString()] || [];
+        });
+
+        return res.json({ modules });
 
     } catch (error) {
         console.error(error);
@@ -83,6 +113,8 @@ export const getModulesByCourse = async (req, res) => {
 };
 
 // Update Module
+
+
 export const updateModule = async (req, res) => {
     try {
         const { id } = req.params;
@@ -94,11 +126,22 @@ export const updateModule = async (req, res) => {
             return res.status(404).json({ message: 'Module not found' });
         }
 
-        // Check if course is editable
-        if (module.course.status !== 'draft' && module.course.status !== 'rejected') {
+        if (!['draft', 'rejected', 'published'].includes(module.course.status)) {
             return res.status(400).json({
-                message: 'Cannot edit module - course is not in draft status'
+                message: 'Cannot edit module - course not editable'
             });
+        }
+
+        // 🔐 ENFORCE GRADED RULES ON UPDATE
+        if (module.course.unlockMode === "graded_unlock") {
+
+            if (module.order === 1) {
+                updates.unlockRule = "none";
+                updates.passingScore = 0;
+            } else {
+                updates.unlockRule = "pass_assessment";
+                updates.passingScore = updates.passingScore || 50;
+            }
         }
 
         Object.assign(module, updates);
