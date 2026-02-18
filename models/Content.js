@@ -18,27 +18,24 @@ const ContentSchema = new mongoose.Schema({
         required: true
     },
 
-    contentUrl: {
-        type: String
-    },
+    contentUrl: String,
 
-    duration: {
-        type: Number  // minutes
-    },
+    duration: Number,
 
     order: {
         type: Number,
         required: true
     },
 
-    // 🔥 Used only for live template scheduling logic
-    weekOffset: {
-        type: Number,   // which week inside module (0,1,2...)
-        default: 0
+    // 🔥 Only for live courses
+    dayNumber: {
+        type: Number
     },
 
-    dayOfWeek: {
-        type: Number,   // 0-6 (Sunday-Saturday)
+    // manual unlock support
+    unlocked: {
+        type: Boolean,
+        default: false
     }
 
 }, { timestamps: true });

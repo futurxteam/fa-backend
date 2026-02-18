@@ -2,7 +2,6 @@ import Module from '../models/Module.js';
 import Course from '../models/Course.js';
 import Content from '../models/Content.js';
 // Create Module (Step 3)
-
 export const createModule = async (req, res) => {
     try {
         let {
@@ -11,6 +10,8 @@ export const createModule = async (req, res) => {
             description,
             order,
             moduleType,
+            weekNumber,
+            estimatedDuration,
             isFree,
             unlockRule,
             passingScore
@@ -22,13 +23,66 @@ export const createModule = async (req, res) => {
             return res.status(404).json({ message: 'Course not found' });
         }
 
-        if (!['draft', 'rejected', 'published'].includes(course.status)) {
+        if (!['draft', 'rejected'].includes(course.status)) {
             return res.status(400).json({
                 message: 'Cannot edit course in current status'
             });
         }
 
-        // 🔐 ENFORCE GRADED UNLOCK RULES
+        // ===============================
+        // 🔥 AUTO ORDER IF NOT PROVIDED
+        // ===============================
+        if (!order) {
+            const lastModule = await Module.findOne({ course: courseId })
+                .sort({ order: -1 });
+
+            order = lastModule ? lastModule.order + 1 : 1;
+        }
+
+        // ===============================
+        // 🔥 LIVE TEMPLATE VALIDATION
+        // ===============================
+        
+     // ===============================
+// 🔥 LIVE TEMPLATE VALIDATION
+// ===============================
+if (course.courseType === "live") {
+
+    if (!weekNumber) {
+        return res.status(400).json({
+            message: "weekNumber is required for live modules"
+        });
+    }
+
+    weekNumber = Number(weekNumber);
+    estimatedDuration = Number(estimatedDuration) || 1;
+
+    const newStart = weekNumber;
+    const newEnd = weekNumber + estimatedDuration - 1;
+
+    const existingModules = await Module.find({ course: courseId });
+
+    for (let mod of existingModules) {
+
+        const existingStart = mod.weekNumber;
+        const existingEnd =
+            mod.weekNumber + (mod.estimatedDuration || 1) - 1;
+
+        const isOverlapping =
+            newStart <= existingEnd &&
+            newEnd >= existingStart;
+
+        if (isOverlapping) {
+            return res.status(400).json({
+                message: `Module overlaps with "${mod.title}" (Weeks ${existingStart}-${existingEnd})`
+            });
+        }
+    }
+}
+
+        // ===============================
+        // 🔐 GRADED RULE ENFORCEMENT
+        // ===============================
         if (course.unlockMode === "graded_unlock") {
 
             if (order === 1) {
@@ -46,6 +100,8 @@ export const createModule = async (req, res) => {
             description,
             order,
             moduleType,
+            weekNumber: course.courseType === "live" ? weekNumber : undefined,
+            estimatedDuration: course.courseType === "live" ? estimatedDuration : undefined,
             isFree,
             unlockRule,
             passingScore
@@ -63,7 +119,10 @@ export const createModule = async (req, res) => {
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({
+            message: 'Server error',
+            error: error.message
+        });
     }
 };
 

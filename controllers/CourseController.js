@@ -6,26 +6,22 @@ import Assessment from "../models/Assessment.js";
 import Submission from "../models/Submission.js";
 
 // Step 1: Create/Update Basic Details
+// Step 1: Create/Update Basic Details
 export const createOrUpdateStep1 = async (req, res) => {
     try {
         const { courseId, title, description, courseType, price, faculty } = req.body;
 
-        console.log('Received course data:', { courseId, title, description, courseType, price, faculty });
-        console.log('Price type:', typeof price, 'Value:', price);
-
-        // Ensure price is a number
         const parsedPrice = Number(price) || 0;
 
         let course;
 
         if (courseId) {
-            // Update existing draft
             course = await Course.findById(courseId);
+
             if (!course) {
                 return res.status(404).json({ message: 'Course not found' });
             }
 
-            // Only allow updates if in draft or rejected status
             if (course.status !== 'draft' && course.status !== 'rejected') {
                 return res.status(400).json({
                     message: 'Cannot edit course in current status'
@@ -37,10 +33,17 @@ export const createOrUpdateStep1 = async (req, res) => {
             course.courseType = courseType;
             course.price = parsedPrice;
             course.faculty = faculty;
+
+            // 🔥 FIX HERE
+            if (courseType === "live") {
+                course.isTemplate = true;
+            } else {
+                course.isTemplate = false;
+            }
+
             course.currentStep = Math.max(course.currentStep, 1);
 
         } else {
-            // Create new course
             course = new Course({
                 title,
                 description,
@@ -49,7 +52,10 @@ export const createOrUpdateStep1 = async (req, res) => {
                 faculty,
                 createdBy: req.user._id,
                 currentStep: 1,
-                status: 'draft'
+                status: 'draft',
+
+                // 🔥 FIX HERE
+                isTemplate: courseType === "live"
             });
         }
 
@@ -455,4 +461,212 @@ export const enrollInCourse = async (req, res) => {
         console.error(error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
+};
+
+
+export const createOrUpdateTemplateStep1 = async (req, res) => {
+  try {
+    const {
+      courseId,
+      title,
+      description,
+      price,
+      faculty,
+      duration
+    } = req.body;
+
+    let course;
+
+    if (courseId) {
+      course = await Course.findById(courseId);
+
+      if (!course) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+
+      if (course.status !== "draft" && course.status !== "rejected") {
+        return res.status(400).json({
+          message: "Cannot edit template in current status"
+        });
+      }
+
+      course.title = title;
+      course.description = description;
+      course.price = Number(price) || 0;
+      course.faculty = faculty;
+      course.duration = duration;
+      course.isTemplate = true;
+      course.courseType = "live";
+
+    } else {
+      course = new Course({
+        title,
+        description,
+        price: Number(price) || 0,
+        faculty,
+        duration,
+        isTemplate: true,
+        courseType: "live",
+        createdBy: req.user._id,
+        status: "draft",
+        currentStep: 1
+      });
+    }
+
+    await course.save();
+
+    res.json({
+      message: "Template Step 1 saved",
+      course
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+export const updateTemplatePayment = async (req, res) => {
+  try {
+    const { courseId, paymentOptions } = req.body;
+
+    const course = await Course.findById(courseId);
+
+    if (!course || !course.isTemplate) {
+      return res.status(404).json({ message: "Template not found" });
+    }
+
+    if (course.status !== "draft" && course.status !== "rejected") {
+      return res.status(400).json({
+        message: "Cannot edit template in current status"
+      });
+    }
+
+    course.paymentOptions = paymentOptions;
+    course.currentStep = Math.max(course.currentStep, 2);
+
+    await course.save();
+
+    res.json({
+      message: "Payment settings saved",
+      course
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+export const getAllTemplates = async (req, res) => {
+  try {
+    const filter = {
+      isTemplate: true,
+      courseType: "live"
+    };
+
+    if (req.user.role === "faculty") {
+      filter.$or = [
+        { createdBy: req.user._id },
+        { faculty: req.user._id }
+      ];
+    }
+
+    const templates = await Course.find(filter)
+      .populate("faculty", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({ templates });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+export const getTemplateById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const template = await Course.findOne({
+      _id: id,
+      isTemplate: true
+    })
+      .populate("faculty", "name email");
+
+    if (!template) {
+      return res.status(404).json({ message: "Template not found" });
+    }
+
+    const modules = await Module.find({ course: id })
+      .sort({ order: 1 });
+
+    const modulesWithContent = [];
+
+    for (let module of modules) {
+      const content = await Content.find({
+        module: module._id
+      }).sort({ order: 1 });
+
+      modulesWithContent.push({
+        ...module.toObject(),
+        content
+      });
+    }
+
+    res.json({
+      template,
+      modules: modulesWithContent
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+export const submitTemplateForReview = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const template = await Course.findOne({
+      _id: id,
+      isTemplate: true
+    });
+
+    if (!template) {
+      return res.status(404).json({ message: "Template not found" });
+    }
+
+    if (template.status !== "draft" && template.status !== "rejected") {
+      return res.status(400).json({
+        message: "Template already submitted"
+      });
+    }
+
+    const moduleCount = await Module.countDocuments({
+      course: id
+    });
+
+    if (moduleCount === 0) {
+      return res.status(400).json({
+        message: "Add at least one module before submitting"
+      });
+    }
+
+    template.status = "in_review";
+    template.isComplete = true;
+
+    await template.save();
+
+    res.json({
+      message: "Template submitted for review",
+      template
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };

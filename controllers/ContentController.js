@@ -3,16 +3,17 @@ import Module from '../models/Module.js';
 import Course from '../models/Course.js';
 
 // Create Content (Step 4)
+
 export const createContent = async (req, res) => {
     try {
         let {
             moduleId,
             title,
             contentType,
-            scheduledDate,
             duration,
             order,
-            pushOthers
+            pushOthers,
+            dayNumber
         } = req.body;
 
         if (!moduleId || !title) {
@@ -51,29 +52,56 @@ export const createContent = async (req, res) => {
             contentType = "link";
         }
 
-        if (!contentUrl) {
-            return res.status(400).json({
-                message: 'Content URL or file is required'
-            });
+        if (
+  !contentUrl &&
+  !req.file &&
+  contentType !== "live_session"
+) {
+  return res.status(400).json({
+    message: 'Content URL or file is required'
+  });
+}
+
+        // ===================================================
+        // 🔥 LIVE COURSE DAY VALIDATION
+        // ===================================================
+        let parsedDayNumber;
+
+        if (module.course.courseType === "live") {
+
+            parsedDayNumber = Number(dayNumber);
+
+if (isNaN(parsedDayNumber) || parsedDayNumber < 1) {
+    return res.status(400).json({
+        message: "dayNumber must be a number >= 1"
+    });
+}
+
+
+            // module duration in weeks → convert to total days
+            const maxDays = (module.estimatedDuration || 1) * 7;
+
+            if (parsedDayNumber > maxDays) {
+                return res.status(400).json({
+                    message: `dayNumber cannot exceed ${maxDays} for this module`
+                });
+            }
         }
 
         // ===================================================
         // ✅ ORDER LOGIC
         // ===================================================
-
-        // If no order passed → append at end
         if (!order) {
             const lastContent = await Content.findOne({ module: moduleId })
                 .sort({ order: -1 });
 
             order = lastContent ? lastContent.order + 1 : 1;
-        } 
-        else {
+        } else {
             order = Number(order);
 
             const existing = await Content.findOne({
                 module: moduleId,
-                order: order
+                order
             });
 
             if (existing && !pushOthers) {
@@ -94,15 +122,18 @@ export const createContent = async (req, res) => {
         }
 
         // ===================================================
-
+        // ✅ CREATE CONTENT
+        // ===================================================
         const content = new Content({
             module: moduleId,
             title,
             contentType,
             contentUrl,
-            scheduledDate,
             duration: duration || 0,
-            order
+            order,
+            dayNumber: module.course.courseType === "live"
+                ? parsedDayNumber
+                : undefined
         });
 
         await content.save();
@@ -125,57 +156,77 @@ export const createContent = async (req, res) => {
 };
 
 
+
 // Get Content by Module
+
 export const getContentByModule = async (req, res) => {
     try {
         const { moduleId } = req.params;
 
         const contents = await Content.find({ module: moduleId })
-            .sort({ order: 1 })
+            .sort({
+                dayNumber: 1,   // first group by day
+                order: 1        // then by order inside that day
+            })
             .lean();
 
         res.json({ contents });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({
+            message: 'Server error',
+            error: error.message
+        });
     }
 };
+
 
 
 // Update Content
 export const updateContent = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, contentUrl, duration, order, pushOthers } = req.body;
+
+        const {
+            title,
+            contentUrl,
+            duration,
+            order,
+            pushOthers,
+            dayNumber,
+            unlocked
+        } = req.body;
 
         const content = await Content.findById(id).populate({
-            path: 'module',
-            populate: { path: 'course' }
+            path: "module",
+            populate: { path: "course" }
         });
 
         if (!content) {
-            return res.status(404).json({ message: 'Content not found' });
+            return res.status(404).json({ message: "Content not found" });
         }
 
-        if (!['draft', 'rejected'].includes(content.module.course.status)) {
+        if (!["draft", "rejected"].includes(content.module.course.status)) {
             return res.status(400).json({
-                message: 'Cannot edit content - course is not editable'
+                message: "Cannot edit content - course is not editable"
             });
         }
 
-        // ========= HANDLE ORDER CHANGE =========
-        if (order !== undefined && order !== content.order) {
+        // ================= ORDER LOGIC =================
+        if (order !== undefined && Number(order) !== content.order) {
+
+            const parsedOrder = Number(order);
 
             const existing = await Content.findOne({
                 module: content.module._id,
-                order: order,
+                order: parsedOrder,
                 _id: { $ne: content._id }
             });
 
             if (existing && !pushOthers) {
                 return res.status(400).json({
-                    message: 'Order already used. Set pushOthers=true to shift others.'
+                    message: "Order already used. Set pushOthers=true to shift others."
                 });
             }
 
@@ -183,30 +234,35 @@ export const updateContent = async (req, res) => {
                 await Content.updateMany(
                     {
                         module: content.module._id,
-                        order: { $gte: order }
+                        order: { $gte: parsedOrder }
                     },
                     { $inc: { order: 1 } }
                 );
             }
 
-            content.order = order;
+            content.order = parsedOrder;
         }
 
-        // ========= SAFE FIELD UPDATES =========
+        // ================= SAFE UPDATES =================
         if (title !== undefined) content.title = title;
         if (contentUrl !== undefined) content.contentUrl = contentUrl;
-        if (duration !== undefined) content.duration = duration;
+        if (duration !== undefined) content.duration = Number(duration);
+        if (dayNumber !== undefined) content.dayNumber = Number(dayNumber);
+        if (unlocked !== undefined) content.unlocked = unlocked;
 
         await content.save();
 
         res.json({
-            message: 'Content updated successfully',
+            message: "Content updated successfully",
             content
         });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(500).json({
+            message: "Server error",
+            error: error.message
+        });
     }
 };
 
