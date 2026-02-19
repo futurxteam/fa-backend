@@ -5,7 +5,8 @@ import {
   getBatchById,
   updateBatch,
   deleteBatch,
-  generateBatch
+  generateBatch,
+  getBatchStructure
 } from "../controllers/batchController.js";
 import { authenticate, authorize } from '../middleware/roleAuth.js';
 
@@ -19,7 +20,7 @@ router.get("/:id",  authenticate,
   authorize("admin", "faculty"), getBatchById);
 router.put("/:id",  authenticate,
   authorize("admin", "faculty"), updateBatch);
-router.delete("/:id",  authenticate,
+router.delete("/:batchId",  authenticate,
   authorize("admin", "faculty"), deleteBatch);
 router.post(
   "/:batchId/generate",
@@ -27,4 +28,6 @@ router.post(
   authorize("admin", "faculty"),
   generateBatch
 );
+router.get("/:batchId/structure", authenticate, authorize("admin", "faculty"), getBatchStructure);
+
 export default router;

@@ -6,6 +6,7 @@ import BatchContent from "../models/BatchContent.js";
 import Module from "../models/Module.js";
 import Content from "../models/Content.js";
 import Course from "../models/Course.js";
+import Enrollment from "../models/Enrollment.js";
 
 export const createBatch = async (req, res) => {
   try {
@@ -46,7 +47,8 @@ export const createBatch = async (req, res) => {
       endDate,
       weeklySchedule,
       faculty,
-      maxStudents
+      maxStudents,
+      executionGenerated: false // ⭐ important
     });
 
     res.status(201).json({
@@ -55,7 +57,6 @@ export const createBatch = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
     res.status(500).json({
       message: "Server error",
       error: error.message
@@ -94,42 +95,24 @@ export const getBatchById = async (req, res) => {
     const { id } = req.params;
 
     const batch = await Batch.findById(id)
-      .populate("courseTemplate", "title description")
-      .populate("faculty", "name email");
+      .populate("faculty", "name email")
+      .populate("courseTemplate", "title");
 
     if (!batch) {
-      return res.status(404).json({
-        message: "Batch not found"
-      });
+      return res.status(404).json({ message: "Batch not found" });
     }
 
-    const modules = await BatchModule.find({ batch: id })
-      .populate("templateModule", "title weekNumber")
-      .sort({ weekNumber: 1 });
+    res.json(batch);
 
-    const contents = await BatchContent.find({ batch: id })
-      .populate("templateContent", "title contentType dayNumber")
-      .sort({ scheduledDate: 1 });
-
-    const studentCount = await Enrollment.countDocuments({
-      batch: id,
-      paymentStatus: { $in: ["paid", "free"] }
-    });
-
-    res.json({
-      batch,
-      modules,
-      contents,
-      studentCount
-    });
-
-  } catch (error) {
+  } catch (err) {
+    console.error("getBatchById error:", err); // ⭐ see real error
     res.status(500).json({
       message: "Server error",
-      error: error.message
+      error: err.message
     });
   }
 };
+
 
 
 export const updateBatch = async (req, res) => {
@@ -181,9 +164,9 @@ export const updateBatch = async (req, res) => {
 
 export const deleteBatch = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { batchId } = req.params;
 
-    const batch = await Batch.findById(id);
+    const batch = await Batch.findById(batchId);
 
     if (!batch) {
       return res.status(404).json({
@@ -191,10 +174,10 @@ export const deleteBatch = async (req, res) => {
       });
     }
 
-    await BatchModule.deleteMany({ batch: id });
-    await BatchContent.deleteMany({ batch: id });
+    await BatchModule.deleteMany({ batch: batchId });
+    await BatchContent.deleteMany({ batch: batchId });
     await Enrollment.updateMany(
-      { batch: id },
+      { batch: batchId },
       { $set: { batch: null } }
     );
 
@@ -215,12 +198,20 @@ export const generateBatch = async (req, res) => {
   try {
     const { batchId } = req.params;
 
-    const batch = await Batch.findById(batchId)
-      .populate("courseTemplate");
+    const batch = await Batch.findById(batchId).populate("courseTemplate");
 
     if (!batch) {
       return res.status(404).json({ message: "Batch not found" });
     }
+
+    if (batch.executionGenerated) {
+      return res.json({
+        message: "Batch already generated",
+        alreadyGenerated: true
+      });
+    }
+
+    /* ===== GET TEMPLATE MODULES ===== */
 
     const modules = await Module.find({
       course: batch.courseTemplate._id
@@ -228,34 +219,298 @@ export const generateBatch = async (req, res) => {
 
     for (const module of modules) {
 
+      /* ===== CREATE BATCH MODULE ===== */
+
       const batchModule = await BatchModule.create({
         batch: batch._id,
         templateModule: module._id,
-        weekNumber: module.weekNumber
+        weekNumber: module.weekNumber,
+        status: "upcoming"
       });
+
+      /* ===== GET TEMPLATE CONTENT ===== */
 
       const contents = await Content.find({
         module: module._id
       }).sort({ dayNumber: 1, order: 1 });
 
-      for (const content of contents) {
+      if (!contents.length) continue;
 
-        await BatchContent.create({
-          batch: batch._id,
-          batchModule: batchModule._id,
-          templateContent: content._id,
-          scheduledDate: null, // 🔥 manual
-          contentStatus: "scheduled"
-        });
-      }
+      /* ===== CREATE SESSIONS ===== */
+
+      const batchContents = contents.map(content => ({
+        batch: batch._id,
+        batchModule: batchModule._id,
+
+        templateContent: content._id,
+
+        title: content.title,     // ⭐ session title
+        materials: [],            // ⭐ required for your schema
+
+        unlocked: false,
+        isFromTemplate: true,
+        contentStatus: "scheduled"
+      }));
+
+      await BatchContent.insertMany(batchContents);
     }
 
-    res.json({ message: "Batch generated successfully" });
+    batch.executionGenerated = true;
+    await batch.save();
+
+    return res.json({
+      message: "Batch generated successfully",
+      generated: true
+    });
 
   } catch (error) {
+    console.error("Generate batch error:", error);
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
+
+export const getBatchStructure = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+
+    /* ===== batch ===== */
+    const batch = await Batch.findById(batchId)
+      .populate("faculty", "name email")
+      .populate("courseTemplate", "title");
+
+    if (!batch) {
+      return res.status(404).json({ message: "Batch not found" });
+    }
+
+    /* ===== batch modules + template ===== */
+    const modules = await BatchModule.find({ batch: batchId })
+      .populate("templateModule") // ⭐ IMPORTANT
+      .sort({ weekNumber: 1 })
+      .lean();
+
+    const moduleIds = modules.map(m => m._id);
+
+    /* ===== batch contents + template ===== */
+    const contents = await BatchContent.find({
+      batchModule: { $in: moduleIds }
+    })
+      .populate("templateContent") // ⭐ IMPORTANT
+      .lean();
+
+    /* ===== group contents ===== */
+    const contentMap = {};
+
+    contents.forEach(c => {
+      const key = c.batchModule.toString();
+      if (!contentMap[key]) contentMap[key] = [];
+      contentMap[key].push(c);
+    });
+
+    const modulesWithContent = modules.map(m => ({
+      ...m,
+      contents: contentMap[m._id.toString()] || []
+    }));
+
+    res.json({
+      batch,
+      modules: modulesWithContent
+    });
+
+  } catch (error) {
+    console.error("getBatchStructure error:", error);
     res.status(500).json({
       message: "Server error",
       error: error.message
     });
   }
 };
+
+
+export const toggleUnlockBatchContent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { unlocked } = req.body;
+
+    const content = await BatchContent.findByIdAndUpdate(
+      id,
+      { unlocked },
+      { new: true }
+    );
+
+    if (!content) {
+      return res.status(404).json({ message: "Batch content not found" });
+    }
+
+    res.json(content);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+export const hideTemplateContent = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const content = await BatchContent.findById(id);
+
+    if (!content) {
+      return res.status(404).json({ message: "Not found" });
+    }
+
+    if (!content.isFromTemplate) {
+      return res.status(400).json({
+        message: "Only template content can be hidden"
+      });
+    }
+
+    content.templateHidden = true;
+    await content.save();
+
+    res.json(content);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+export const addBatchContent = async (req, res) => {
+  try {
+    let {
+      batch,
+      batchModule,
+      batchContentId,
+      title,
+      contentType,
+      duration
+    } = req.body;
+
+    if (!title) {
+      return res.status(400).json({
+        message: "title required"
+      });
+    }
+
+    let url = "";
+
+    /* FILE */
+    if (req.file) {
+      url = req.file.path;
+
+      if (req.file.mimetype === "application/pdf") {
+        contentType = "pdf";
+      } else if (req.file.mimetype.startsWith("video/")) {
+        contentType = "video";
+      }
+    }
+
+    /* LINK */
+    if (!url && req.body.contentUrl) {
+      url = req.body.contentUrl;
+      contentType = "link";
+    }
+
+    if (!url && contentType !== "live_session") {
+      return res.status(400).json({
+        message: "Material required"
+      });
+    }
+
+    /* =====================================================
+       ⭐ CASE 1 → ADD MATERIAL TO EXISTING SESSION
+    ====================================================== */
+
+    if (batchContentId) {
+
+      const session = await BatchContent.findById(batchContentId);
+
+      if (!session) {
+        return res.status(404).json({ message: "Batch content not found" });
+      }
+
+      session.materials.push({
+        title,
+        type: contentType || "link",
+        url,
+        duration: duration || 0
+      });
+
+      await session.save();
+
+      return res.json({
+        message: "Material added",
+        content: session
+      });
+    }
+
+    /* =====================================================
+       ⭐ CASE 2 → CREATE NEW SESSION
+    ====================================================== */
+
+    if (!batch || !batchModule) {
+      return res.status(400).json({
+        message: "batch and batchModule required to create session"
+      });
+    }
+
+    const newSession = await BatchContent.create({
+      batch,
+      batchModule,
+      title,
+      materials: [
+        {
+          title,
+          type: contentType || "link",
+          url,
+          duration: duration || 0,
+          isPrimary: true
+        }
+      ],
+      isFromTemplate: false,
+      unlocked: false,
+      contentStatus: "scheduled"
+    });
+
+    res.json({
+      message: "Batch session created",
+      content: newSession
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+export const updateBatchContentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { contentStatus } = req.body;
+
+    const allowed = ["scheduled","live","completed","cancelled"];
+
+    if (!allowed.includes(contentStatus)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    const content = await BatchContent.findByIdAndUpdate(
+      id,
+      { contentStatus },
+      { new: true }
+    );
+
+    res.json(content);
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+

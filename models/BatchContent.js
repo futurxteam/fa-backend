@@ -1,41 +1,61 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
 const BatchContentSchema = new mongoose.Schema({
 
-    batch: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Batch",
-        required: true
+  batch: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Batch",
+    required: true
+  },
+
+  batchModule: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "BatchModule",
+    required: true
+  },
+
+  // optional template reference
+  templateContent: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Content",
+    default: null
+  },
+
+  /* REAL MATERIAL */
+  title: String,
+materials: [
+  {
+    title: String,
+    type: {
+      type: String,
+      enum: ["video","pdf","link","notes"]
     },
+    url: String,
+    duration: Number,
+    isPrimary: { type: Boolean, default: false }
+  }
+]
+,
 
-    batchModule: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "BatchModule",
-        required: true
-    },
+  contentUrl: String,
+  duration: Number,
 
-    templateContent: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Content",
-        required: true
-    },
+  attachments: [
+    { name: String, url: String, fileType: String }
+  ],
 
-    scheduledDate: {
-        type: Date
-    },
+  unlocked: { type: Boolean, default: false },
 
-    zoomMeetingId: String,
-    zoomJoinUrl: String,
-    zoomStartUrl: String,
+  contentStatus: {
+    type: String,
+    enum: ["scheduled","live","completed","cancelled"],
+    default: "scheduled"
+  },
 
-    recordingUrl: String,
+  recordingUrl: String,
 
-    contentStatus: {
-        type: String,
-        enum: ["scheduled", "live", "completed", "cancelled"],
-        default: "scheduled"
-    }
+  isFromTemplate: { type: Boolean, default: false }
 
 }, { timestamps: true });
 
-export default mongoose.model('BatchContent', BatchContentSchema);
+export default mongoose.model("BatchContent", BatchContentSchema);

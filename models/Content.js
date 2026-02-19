@@ -32,12 +32,7 @@ const ContentSchema = new mongoose.Schema({
         type: Number
     },
 
-    // manual unlock support
-    unlocked: {
-        type: Boolean,
-        default: false
-    }
-
+  
 }, { timestamps: true });
 
 export default mongoose.model('Content', ContentSchema);

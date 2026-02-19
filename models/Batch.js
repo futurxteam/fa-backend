@@ -49,6 +49,12 @@ const BatchSchema = new mongoose.Schema({
         type: Number,
         default: 1
     }
+    ,
+    executionGenerated: {
+  type: Boolean,
+  default: false
+}
+
 
 }, { timestamps: true });
 
