@@ -55,5 +55,4 @@ router.get(
     authorize('student'),
     getProgress
 );
-
 export default router;

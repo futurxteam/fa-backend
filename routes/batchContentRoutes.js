@@ -2,7 +2,7 @@ import express from "express";
 import {
   addBatchContent,
   toggleUnlockBatchContent,
-  hideTemplateContent,
+  setTemplateVisibility,
   updateBatchContentStatus
 } from "../controllers/batchController.js";
 
@@ -37,8 +37,11 @@ router.patch(
   "/:id/hide-template",
   authenticate,
   authorize("faculty", "admin"),
-  hideTemplateContent
+  setTemplateVisibility
 );
+
+router.patch("/:id/template-visibility", setTemplateVisibility);
+
 
 /* ================= UPDATE STATUS ================= */
 router.patch(

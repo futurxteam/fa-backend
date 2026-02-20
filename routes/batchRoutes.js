@@ -6,7 +6,8 @@ import {
   updateBatch,
   deleteBatch,
   generateBatch,
-  getBatchStructure
+  getBatchStructure,
+  setBatchPublishStatus
 } from "../controllers/batchController.js";
 import { authenticate, authorize } from '../middleware/roleAuth.js';
 
@@ -29,5 +30,5 @@ router.post(
   generateBatch
 );
 router.get("/:batchId/structure", authenticate, authorize("admin", "faculty"), getBatchStructure);
-
+router.patch("/:id/publish",authenticate, authorize("admin"), setBatchPublishStatus);
 export default router;

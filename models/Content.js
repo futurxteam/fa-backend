@@ -32,7 +32,8 @@ const ContentSchema = new mongoose.Schema({
         type: Number
     },
 
-  
+ 
+
 }, { timestamps: true });
 
 export default mongoose.model('Content', ContentSchema);

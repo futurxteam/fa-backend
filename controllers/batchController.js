@@ -353,29 +353,43 @@ export const toggleUnlockBatchContent = async (req, res) => {
 };
 
 
-export const hideTemplateContent = async (req, res) => {
+
+
+export const setTemplateVisibility = async (req, res) => {
   try {
     const { id } = req.params;
+    const { isTemplateHidden } = req.body;
 
-    const content = await BatchContent.findById(id);
-
-    if (!content) {
-      return res.status(404).json({ message: "Not found" });
-    }
-
-    if (!content.isFromTemplate) {
+    if (typeof isTemplateHidden !== "boolean") {
       return res.status(400).json({
-        message: "Only template content can be hidden"
+        success: false,
+        message: "isTemplateHidden must be boolean"
       });
     }
 
-    content.templateHidden = true;
-    await content.save();
+    const item = await BatchContent.findByIdAndUpdate(
+      id,
+      { isTemplateHidden },
+      { new: true }
+    );
 
-    res.json(content);
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: "BatchContent not found"
+      });
+    }
 
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.json({
+      success: true,
+      data: item
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
@@ -514,3 +528,42 @@ export const updateBatchContentStatus = async (req, res) => {
 };
 
 
+
+
+export const setBatchPublishStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isPublished } = req.body;
+
+    if (typeof isPublished !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "isPublished must be boolean"
+      });
+    }
+
+    const batch = await Batch.findByIdAndUpdate(
+      id,
+      { isPublished },
+      { new: true }
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: "Batch not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: batch
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

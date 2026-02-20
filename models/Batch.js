@@ -44,6 +44,11 @@ const BatchSchema = new mongoose.Schema({
         enum: ["upcoming", "ongoing", "completed", "cancelled"],
         default: "upcoming"
     },
+    isPublished: {
+  type: Boolean,
+  default: false,
+  index: true
+},
 
     currentWeek: {
         type: Number,

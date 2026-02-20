@@ -54,7 +54,11 @@ materials: [
 
   recordingUrl: String,
 
-  isFromTemplate: { type: Boolean, default: false }
+  isFromTemplate: { type: Boolean, default: false },
+    isTemplateHidden: {
+        type: Boolean,
+        default: false
+    }
 
 }, { timestamps: true });
 
