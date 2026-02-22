@@ -2,7 +2,7 @@ import Content from "../models/Content.js";
 import ContentProgress from "../models/ContentProgress.js";
 import Module from "../models/Module.js";
 import Enrollment from "../models/Enrollment.js";
-
+import BatchContent from "../models/BatchContent.js";
 // Helper function to merge overlapping time segments
 const mergeSegments = (segments) => {
     if (segments.length === 0) return [];
@@ -42,10 +42,16 @@ export const saveProgress = async (req, res) => {
     const { contentId, currentTime, duration, watchedSegment } = req.body;
     const studentId = req.user._id;
 
-    const content = await Content.findById(contentId);
-    if (!content) {
-      return res.status(404).json({ message: "Content not found" });
-    }
+  let content = await Content.findById(contentId);
+
+// ⭐ if not recorded content → try batch content
+if (!content) {
+  content = await BatchContent.findById(contentId);
+}
+
+if (!content) {
+  return res.status(404).json({ message: "Content not found" });
+}
 
     // =========================
     // 1️⃣ SAVE BASIC PROGRESS
@@ -92,11 +98,21 @@ export const saveProgress = async (req, res) => {
     // 3️⃣ MODULE COMPLETION CHECK (ONLY WHEN VIDEO COMPLETES)
     // =====================================================
     if (completed && content.contentType === "video") {
+let moduleVideos;
 
-      const moduleVideos = await Content.find({
-        module: content.module,
-        contentType: "video"
-      });
+if (content.module) {
+  // recorded
+  moduleVideos = await Content.find({
+    module: content.module,
+    contentType: "video"
+  });
+} else if (content.batchModule) {
+  // ⭐ live
+  moduleVideos = await BatchContent.find({
+    batchModule: content.batchModule,
+    contentType: "video"
+  });
+}
 
       const videoIds = moduleVideos.map(v => v._id);
 
@@ -111,12 +127,23 @@ export const saveProgress = async (req, res) => {
         completedVideos.length === moduleVideos.length
       ) {
 
-        const moduleDoc = await Module.findById(content.module);
+       // ⭐ RECORDED
+if (content.module) {
+  const moduleDoc = await Module.findById(content.module);
 
-        await Enrollment.updateOne(
-          { student: studentId, course: moduleDoc.course },
-          { $addToSet: { completedModules: content.module } }
-        );
+  await Enrollment.updateOne(
+    { student: studentId, course: moduleDoc.course },
+    { $addToSet: { completedModules: content.module } }
+  );
+}
+
+// ⭐ LIVE
+if (content.batchModule) {
+  await Enrollment.updateOne(
+    { student: studentId, batch: content.batch },
+    { $addToSet: { completedBatchModules: content.batchModule } }
+  );
+}
       }
     }
 

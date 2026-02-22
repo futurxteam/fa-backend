@@ -567,3 +567,38 @@ export const setBatchPublishStatus = async (req, res) => {
     });
   }
 };
+
+
+
+// controllers/batchModuleController.js
+
+export const updateBatchModuleStatus = async (req, res) => {
+  try {
+    const { batchId, moduleId } = req.params;
+    const { status } = req.body;
+
+    // validate status
+    if (!["upcoming", "ongoing", "completed"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
+    // ensure module belongs to batch (important security)
+    const module = await BatchModule.findOne({
+      _id: moduleId,
+      batch: batchId
+    });
+
+    if (!module) {
+      return res.status(404).json({ message: "Batch module not found in this batch" });
+    }
+
+    module.status = status;
+    await module.save();
+
+    res.json(module);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
