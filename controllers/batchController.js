@@ -602,3 +602,41 @@ export const updateBatchModuleStatus = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+export const getOngoingModule = async (req, res) => {
+  try {
+    const { batchId } = req.query;   // ⭐ FIX HERE
+
+    if (!batchId) {
+      return res.status(400).json({ message: "batchId required" });
+    }
+
+    const module = await BatchModule.findOne({
+      batch: batchId,
+      status: "ongoing"
+    }).populate("templateModule", "title");
+
+    res.json(module);
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+
+export const getContentsByModule = async (req, res) => {
+  try {
+    const { moduleId } = req.params;
+
+    const contents = await BatchContent.find({
+      batchModule: moduleId
+    })
+      .select("_id title contentStatus")
+      .sort({ createdAt: 1 });
+
+    res.json(contents);
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+

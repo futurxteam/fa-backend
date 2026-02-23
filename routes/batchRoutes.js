@@ -8,9 +8,12 @@ import {
   generateBatch,
   getBatchStructure,
   setBatchPublishStatus,
-  updateBatchModuleStatus
+  updateBatchModuleStatus,
+  getContentsByModule,
+  getOngoingModule
 } from "../controllers/batchController.js";
 import { authenticate, authorize } from '../middleware/roleAuth.js';
+import { getModulesByCourse } from "../controllers/ModuleController.js";
 
 const router = express.Router();
 
@@ -33,4 +36,7 @@ router.post(
 router.get("/:batchId/structure", authenticate, authorize("admin", "faculty"), getBatchStructure);
 router.patch("/:id/publish",authenticate, authorize("admin"), setBatchPublishStatus);
 router.patch("/:batchId/modules/:moduleId/status", authenticate, authorize("admin", "faculty"), updateBatchModuleStatus);
+router.get("/module/ongoing", authenticate, authorize("admin", "faculty"), getOngoingModule);
+router.get("/module/:moduleId/contents", authenticate, authorize("admin", "faculty"), getContentsByModule);
+
 export default router;
