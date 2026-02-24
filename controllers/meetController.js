@@ -2,6 +2,7 @@ import Meet from "../models/meet.js";
 import BatchContent from "../models/BatchContent.js";
 import crypto from "crypto";
 import dotenv from "dotenv";
+import Enrollment from "../models/Enrollment.js";
 dotenv.config();
 
 export const getNextMeet = async (req, res) => {
@@ -106,7 +107,18 @@ export const createOrUpdateMeet = async (req, res) => {
 };
 export const getMeetByBatch = async (req, res) => {
   try {
+    const studentId = req.user.id; // ⭐ logged user
     const { batchId } = req.params;
+
+    /* ⭐ check enrollment */
+    const enrollment = await Enrollment.findOne({
+      student: studentId,
+      batch: batchId
+    });
+
+    if (!enrollment) {
+  return res.json(null); // ⭐ instead of 403
+}
 
     const meet = await Meet.findOne({ batch: batchId })
       .populate("batch", "batchName")
@@ -120,6 +132,7 @@ export const getMeetByBatch = async (req, res) => {
       .populate("batchContent", "title");
 
     res.json(meet);
+
   } catch (e) {
     res.status(500).json({ message: e.message });
   }

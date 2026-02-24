@@ -181,45 +181,64 @@ const modulesWithContent = modules.map(m => ({
     });
   }
 };
-
 export const enrollInBatch = async (req, res) => {
   try {
     const studentId = req.user.id;
     const { batchId } = req.params;
+    const { plan = "full", coupon } = req.body;
 
-    if (!batchId) {
-      return res.status(400).json({ message: "batchId required" });
-    }
-
-    // get batch (to know course)
     const batch = await Batch.findById(batchId).populate("courseTemplate");
+    if (!batch) return res.status(404).json({ message: "Batch not found" });
 
-    if (!batch) {
-      return res.status(404).json({ message: "Batch not found" });
+    const existing = await Enrollment.findOne({ student: studentId, batch: batchId });
+    if (existing) return res.status(400).json({ message: "Already enrolled" });
+
+    const modules = await BatchModule.find({ batch: batchId }).sort({ weekNumber: 1 });
+
+    let blockedModules = [];
+    let modulePayments = [];
+
+    /* ================= MODULE PLAN ================= */
+    if (plan === "module") {
+
+      modulePayments = modules.map(m => ({
+        module: m._id,
+        status: m.status === "ongoing" ? "paid" : "pending", // ⭐ ONGOING AUTO PAID
+        amount: batch.courseTemplate.price / (modules.length || 1),
+        paidAt: m.status === "ongoing" ? new Date() : null
+      }));
+
+      blockedModules = modules
+        .filter(m => m.status !== "ongoing") // ⭐ lock except ongoing
+        .map(m => m._id);
     }
 
-    // prevent duplicate
-    const existing = await Enrollment.findOne({
-      student: studentId,
-      batch: batchId
-    });
+    /* ================= FULL PLAN ================= */
+    else {
 
-    if (existing) {
-      return res.status(400).json({ message: "Already enrolled in this batch" });
+      blockedModules = modules
+        .filter(m => m.status === "upcoming") // ⭐ ONLY FUTURE LOCKED
+        .map(m => m._id);
     }
 
-    // create enrollment
     const enrollment = await Enrollment.create({
       student: studentId,
-      course: batch.courseTemplate._id, // important
+      course: batch.courseTemplate._id,
       batch: batchId,
-      paymentStatus: "free"
+
+      paymentPlan: plan,
+      paymentStatus:
+        plan === "module"
+          ? "pending"
+          : batch.courseTemplate.price === 0
+          ? "free"
+          : "paid",
+
+      blockedModules,
+      modulePayments
     });
 
-    res.json({
-      success: true,
-      enrollment
-    });
+    res.json({ success: true, enrollment });
 
   } catch (err) {
     console.error("Batch enroll error:", err);
