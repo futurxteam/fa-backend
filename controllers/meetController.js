@@ -55,7 +55,16 @@ export const getSignature = (req, res) => {
 
 export const getMeetById = async (req, res) => {
   try {
-    const meet = await Meet.findById(req.params.meetId);
+    const meet = await Meet.findById(req.params.meetId)
+      .populate("batch", "batchName")
+      .populate({
+        path: "batchModule",
+        populate: {
+          path: "templateModule",
+          select: "title"
+        }
+      })
+      .populate("batchContent", "title");
 
     if (!meet) {
       return res.status(404).json({ message: "Meet not found" });
@@ -66,84 +75,52 @@ export const getMeetById = async (req, res) => {
     res.status(500).json({ message: e.message });
   }
 };
+export const createOrUpdateMeet = async (req, res) => {
+  try {
+    const { batchId, moduleId, contentId, meetingNumber, password, startTime, endTime, duration } = req.body;
 
-export const updateMeet = async (req, res) => {
-try {
-const { meetId } = req.params;
-const data = req.body;
+    let meet = await Meet.findOne({ batch: batchId });
 
-const meet = await Meet.findById(meetId);
-if (!meet) return res.status(404).json({ message: "Meet not found" });
+    if (!meet) {
+      meet = new Meet({ batch: batchId });
+    }
 
-if (data.meetingNumber !== undefined)
-meet.meetingNumber = data.meetingNumber.replace(/\s/g, "");
+    if (moduleId !== undefined) meet.batchModule = moduleId;
+    if (contentId !== undefined) meet.batchContent = contentId;
 
-if (data.password !== undefined) meet.password = data.password;
-if (data.startTime !== undefined) meet.startTime = data.startTime;
-if (data.endTime !== undefined) meet.endTime = data.endTime;
-if (data.topic !== undefined) meet.topic = data.topic;
-if (data.status !== undefined) meet.status = data.status;
-if (data.joinUrl !== undefined) meet.joinUrl = data.joinUrl;
-if (data.startUrl !== undefined) meet.startUrl = data.startUrl;
-if (data.duration !== undefined) meet.duration = data.duration;
+    if (meetingNumber !== undefined)
+      meet.meetingNumber = meetingNumber.replace(/\s/g, "");
 
-await meet.save();
+    if (password !== undefined) meet.password = password;
+    if (startTime !== undefined) meet.startTime = startTime;
+    if (endTime !== undefined) meet.endTime = endTime;
+    if (duration !== undefined) meet.duration = duration;
 
-res.json(meet);
+    await meet.save();
 
-} catch (e) {
-res.status(500).json({ message: e.message });
-}
+    res.json(meet);
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
 };
+export const getMeetByBatch = async (req, res) => {
+  try {
+    const { batchId } = req.params;
 
+    const meet = await Meet.findOne({ batch: batchId })
+      .populate("batch", "batchName")
+      .populate({
+        path: "batchModule",
+        populate: {
+          path: "templateModule",
+          select: "title"
+        }
+      })
+      .populate("batchContent", "title");
 
-export const createMeetFromContent = async (req, res) => {
-try {
-const { contentId, meetingNumber, password, startTime, endTime, duration } = req.body;
-
-const content = await BatchContent.findById(contentId)
-.populate({
-path: "batchModule",
-populate: { path: "templateModule", select: "title" }
-});
-
-if (!content) {
-return res.status(404).json({ message: "BatchContent not found" });
-}
-
-/* ⭐ topic auto */
-const moduleTitle = content.batchModule?.templateModule?.title || "";
-const topic = moduleTitle
-? `${moduleTitle} - ${content.title}`
-: content.title;
-
-/* prevent duplicate meet per content */
-const exists = await Meet.findOne({ batchContent: contentId });
-if (exists) {
-return res.status(400).json({ message: "Meet already exists for this content" });
-}
-
-const meet = await Meet.create({
-batch: content.batch,
-batchModule: content.batchModule,
-batchContent: content._id,
-
-topic,
-
-meetingNumber: meetingNumber?.replace(/\s/g, ""), // ⭐ remove spaces
-password,
-
-startTime,
-endTime,
-duration
-});
-
-res.json(meet);
-
-} catch (e) {
-console.error(e);
-res.status(500).json({ message: e.message });
-}
+    res.json(meet);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
 };
-
-

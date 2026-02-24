@@ -5,7 +5,8 @@ const meetSchema = new mongoose.Schema(
     batch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Batch",
-      required: true
+      required: true,
+        unique: true
     },
 
     batchModule: {

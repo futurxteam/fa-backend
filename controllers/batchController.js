@@ -429,13 +429,12 @@ export const addBatchContent = async (req, res) => {
       url = req.body.contentUrl;
       contentType = "link";
     }
-
-    if (!url && contentType !== "live_session") {
-      return res.status(400).json({
-        message: "Material required"
-      });
-    }
-
+// Only require material when adding material
+if (batchContentId && !url && contentType !== "live_session") {
+  return res.status(400).json({
+    message: "Material required"
+  });
+}
     /* =====================================================
        ⭐ CASE 1 → ADD MATERIAL TO EXISTING SESSION
     ====================================================== */
@@ -571,7 +570,6 @@ export const setBatchPublishStatus = async (req, res) => {
 
 
 // controllers/batchModuleController.js
-
 export const updateBatchModuleStatus = async (req, res) => {
   try {
     const { batchId, moduleId } = req.params;
@@ -582,7 +580,7 @@ export const updateBatchModuleStatus = async (req, res) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    // ensure module belongs to batch (important security)
+    // ensure module belongs to batch
     const module = await BatchModule.findOne({
       _id: moduleId,
       batch: batchId
@@ -590,6 +588,21 @@ export const updateBatchModuleStatus = async (req, res) => {
 
     if (!module) {
       return res.status(404).json({ message: "Batch module not found in this batch" });
+    }
+
+    /* ⭐ NEW VALIDATION — only one ongoing */
+    if (status === "ongoing") {
+      const existingOngoing = await BatchModule.findOne({
+        batch: batchId,
+        status: "ongoing",
+        _id: { $ne: moduleId } // ignore current module
+      });
+
+      if (existingOngoing) {
+        return res.status(400).json({
+          message: "Another module is already ongoing"
+        });
+      }
     }
 
     module.status = status;
