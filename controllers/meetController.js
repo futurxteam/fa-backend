@@ -105,22 +105,34 @@ export const createOrUpdateMeet = async (req, res) => {
     res.status(500).json({ message: e.message });
   }
 };
+
+
+import mongoose from "mongoose";
+
 export const getMeetByBatch = async (req, res) => {
   try {
-    const studentId = req.user.id; // ⭐ logged user
     const { batchId } = req.params;
 
-    /* ⭐ check enrollment */
-    const enrollment = await Enrollment.findOne({
-      student: studentId,
-      batch: batchId
-    });
+    // ⭐ role from auth middleware
+    const userId = req.user.id;
+    const role = req.user.role; // admin | instructor | student
 
-    if (!enrollment) {
-  return res.json(null); // ⭐ instead of 403
-}
+    /* ⭐ If student → check enrollment */
+    if (role === "student") {
+      const enrollment = await Enrollment.findOne({
+        student: userId,
+        batch: batchId
+      });
 
-    const meet = await Meet.findOne({ batch: batchId })
+      if (!enrollment) {
+        return res.json(null);
+      }
+    }
+
+    /* ⭐ Admin / instructor skip check */
+    const meet = await Meet.findOne({
+      batch: new mongoose.Types.ObjectId(batchId)
+    })
       .populate("batch", "batchName")
       .populate({
         path: "batchModule",
