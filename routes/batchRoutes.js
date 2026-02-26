@@ -10,7 +10,11 @@ import {
   setBatchPublishStatus,
   updateBatchModuleStatus,
   getContentsByModule,
-  getOngoingModule
+  getOngoingModule,
+  toggleBatchStatus,
+  createLiveAssessment,
+  getBatchModuleAssessments,
+  getAssessmentWithSubmissions
 } from "../controllers/batchController.js";
 import { authenticate, authorize } from '../middleware/roleAuth.js';
 import { getModulesByCourse } from "../controllers/ModuleController.js";
@@ -38,5 +42,9 @@ router.patch("/:id/publish",authenticate, authorize("admin"), setBatchPublishSta
 router.patch("/:batchId/modules/:moduleId/status", authenticate, authorize("admin", "faculty"), updateBatchModuleStatus);
 router.get("/module/ongoing", authenticate, authorize("admin", "faculty"), getOngoingModule);
 router.get("/module/:moduleId/contents", authenticate, authorize("admin", "faculty"), getContentsByModule);
+router.patch("/:id/toggle-status", authenticate, authorize("admin"), toggleBatchStatus);
+router.post("/:batchId/live-assessment", authenticate, authorize("admin", "faculty"), createLiveAssessment);
+router.get(  "/module/:batchModuleId/assessments",  authenticate,  getBatchModuleAssessments);
+router.get("/assessment/:assessmentId/submissions", authenticate, authorize("admin", "faculty"), getAssessmentWithSubmissions);
 
 export default router;

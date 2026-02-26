@@ -7,7 +7,8 @@ import Module from "../models/Module.js";
 import Content from "../models/Content.js";
 import Course from "../models/Course.js";
 import Enrollment from "../models/Enrollment.js";
-
+import Assessment from "../models/Assessment.js";
+import Submission from "../models/Submission.js";
 export const createBatch = async (req, res) => {
   try {
     const {
@@ -653,3 +654,114 @@ export const getContentsByModule = async (req, res) => {
   }
 };
 
+export const toggleBatchStatus = async (req, res) => {
+  try {
+    const { id } = req.params;   // ⭐ FIX
+
+    const batch = await Batch.findById(id);
+
+    if (!batch) {
+      return res.status(404).json({ message: "Batch not found" });
+    }
+
+    let nextStatus = "upcoming";
+
+    if (batch.status === "upcoming") nextStatus = "ongoing";
+    else if (batch.status === "ongoing") nextStatus = "completed";
+    else if (batch.status === "completed") nextStatus = "completed";
+
+    batch.status = nextStatus;
+    await batch.save();
+
+    res.json({
+      message: "Batch status updated",
+      status: batch.status,
+      batch
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+export const createLiveAssessment = async (req, res) => {
+  try {
+    const { batchId } = req.params;          // ⭐ FIX (from params)
+    const { batchModuleId, assessmentType, gradingMode: incomingGradingMode } = req.body;
+
+    // ⭐ Decide grading mode
+    let gradingMode = incomingGradingMode;
+
+    if (!gradingMode) {
+      gradingMode =
+        assessmentType && assessmentType.includes("assignment")
+          ? "manual"
+          : "auto";
+    }
+
+    const assessment = await Assessment.create({
+      ...req.body,
+      batch: batchId,
+      batchModule: batchModuleId,
+      gradingMode
+    });
+
+    /* ⭐ IMPORTANT — create BatchContent so it appears in UI */
+    await BatchContent.create({
+      batch: batchId,
+      batchModule: batchModuleId,
+      title: assessment.title,
+      assessment: assessment._id,
+      unlocked: false,
+      contentStatus: "scheduled",
+      isFromTemplate: false
+    });
+
+    res.status(201).json({
+      message: "Live assessment created",
+      assessment
+    });
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+export const getBatchModuleAssessments = async (req, res) => {
+  try {
+    const { batchModuleId } = req.params;
+
+    const assessments = await Assessment.find({
+      batchModule: batchModuleId
+    }).sort({ createdAt: -1 });
+
+    res.json(assessments);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+export const getAssessmentWithSubmissions = async (req, res) => {
+  try {
+    const { assessmentId } = req.params;
+
+    const assessment = await Assessment.findById(assessmentId);
+
+    if (!assessment) {
+      return res.status(404).json({ message: "Assessment not found" });
+    }
+
+    const submissions = await Submission.find({
+      assessment: assessmentId
+    })
+      .populate("student", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      assessment,
+      submissions
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};

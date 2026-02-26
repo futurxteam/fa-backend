@@ -27,7 +27,7 @@ const AssessmentSchema = new mongoose.Schema({
     course: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Course",
-        required: true
+        required: false   
     },
 
     module: {
@@ -35,6 +35,24 @@ const AssessmentSchema = new mongoose.Schema({
         ref: "Module",
         default: null
     },
+
+    batch: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Batch",
+  default: null
+},
+
+batchModule: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "BatchModule",
+  default: null
+},
+
+gradingMode: {
+  type: String,
+  enum: ["auto", "manual"],
+  default: "auto"
+},
 
     title: {
         type: String,

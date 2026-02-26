@@ -2,7 +2,7 @@ import Batch from "../models/Batch.js";
 import Module from "../models/Module.js";
 import Content from "../models/Content.js";
 import BatchModule from "../models/BatchModule.js";
-
+import Assessment from "../models/Assessment.js";
 
 import Enrollment from "../models/Enrollment.js";
 
@@ -243,5 +243,56 @@ export const enrollInBatch = async (req, res) => {
   } catch (err) {
     console.error("Batch enroll error:", err);
     res.status(500).json({ message: "Batch enrollment failed" });
+  }
+};
+export const getStudentBatchAssessments = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+
+    /* ⭐ 1. batch must be published */
+    const batch = await Batch.findById(batchId).lean();
+
+    if (!batch || !batch.isPublished) {
+      return res.json([]); // hidden batch → no exams
+    }
+
+    /* ⭐ 2. enrollment */
+    const enrollment = await Enrollment.findOne({
+      student: req.user.id,
+      batch: batchId
+    }).lean();
+
+    if (!enrollment) return res.json([]);
+
+    /* ⭐ 3. paid modules */
+    const paidModules = new Set(
+      (enrollment.modulePayments || [])
+        .filter(p => p.status === "paid")
+        .map(p => p.module.toString())
+    );
+
+    /* ⭐ 4. fetch assessments */
+    let assessments = await Assessment.find({
+      batch: batchId,
+      $or: [
+        { isPublished: { $exists: false } }, // backward safe
+        { isPublished: true }
+      ]
+    })
+      .populate("batchModule")
+      .lean();
+
+    /* ⭐ 5. module payment gating */
+    if (enrollment.paymentPlan === "module") {
+      assessments = assessments.filter(a => {
+        if (!a.batchModule) return true; // final exam
+        return paidModules.has(a.batchModule._id.toString());
+      });
+    }
+
+    res.json(assessments);
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
   }
 };

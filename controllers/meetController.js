@@ -3,6 +3,8 @@ import BatchContent from "../models/BatchContent.js";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import Enrollment from "../models/Enrollment.js";
+import MeetAttendance from "../models/MeetAttendance.js";
+
 dotenv.config();
 
 export const getNextMeet = async (req, res) => {
@@ -145,6 +147,157 @@ export const getMeetByBatch = async (req, res) => {
 
     res.json(meet);
 
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+export const meetJoin = async (req, res) => {
+  const { meetId } = req.body;
+  const studentId = req.user.id;
+
+  let record = await MeetAttendance.findOne({
+    meet: meetId,
+    student: studentId
+  });
+
+  if (!record) {
+    record = await MeetAttendance.create({
+      meet: meetId,
+      batch: req.body.batchId,
+      student: studentId,
+      sessions: []
+    });
+  }
+
+  record.sessions.push({ joinTime: new Date() });
+  await record.save();
+
+  res.json(record);
+};
+export const meetLeave = async (req, res) => {
+  const { meetId } = req.body;
+  const studentId = req.user.id;
+
+  const record = await MeetAttendance.findOne({
+    meet: meetId,
+    student: studentId
+  });
+
+  if (!record) return res.json(null);
+
+  const last = record.sessions[record.sessions.length - 1];
+
+  if (last && !last.leaveTime) {
+    last.leaveTime = new Date();
+    last.duration = Math.floor((last.leaveTime - last.joinTime) / 1000);
+    record.totalDuration += last.duration;
+  }
+
+  await record.save();
+  res.json(record);
+};
+
+
+
+/* ================= JOIN ================= */
+export const markMeetJoin = async (req, res) => {
+  try {
+    const { meetId, batchId } = req.body;
+    const studentId = req.user.id;
+
+    let record = await MeetAttendance.findOne({
+      meet: meetId,
+      student: studentId
+    });
+
+    if (!record) {
+      record = await MeetAttendance.create({
+        meet: meetId,
+        batch: batchId,
+        student: studentId,
+        sessions: [{ joinTime: new Date() }]
+      });
+
+      return res.json({ message: "Join recorded" });
+    }
+
+    const lastSession = record.sessions[record.sessions.length - 1];
+
+    /* ⭐ IMPORTANT — prevent duplicate join */
+    if (lastSession && !lastSession.leaveTime) {
+      return res.json({ message: "Already joined" });
+    }
+
+    record.sessions.push({ joinTime: new Date() });
+    await record.save();
+
+    res.json({ message: "Join recorded" });
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+export const markMeetLeave = async (req, res) => {
+  try {
+    const { meetId } = req.body;
+    const studentId = req.user.id;
+
+    const record = await MeetAttendance.findOne({
+      meet: meetId,
+      student: studentId
+    });
+
+    if (!record || record.sessions.length === 0)
+      return res.json({ message: "No join record" });
+
+    const lastSession = record.sessions[record.sessions.length - 1];
+
+    if (!lastSession.leaveTime) {
+      lastSession.leaveTime = new Date();
+
+      const duration = Math.floor(
+        (lastSession.leaveTime - lastSession.joinTime) / 1000
+      );
+
+      lastSession.duration = duration;
+
+      record.totalDuration += duration;
+    }
+
+    await record.save();
+
+    res.json({ message: "Leave recorded" });
+
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+/* ================= ADMIN VIEW ================= */
+export const getMeetAttendance = async (req, res) => {
+  try {
+    const list = await MeetAttendance.find({
+      meet: req.params.meetId
+    })
+      .populate("student", "name email")
+      .sort({ joinTime: 1 });
+
+    res.json(list);
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
+
+/* ================= STUDENT VIEW ================= */
+export const getStudentMeetAttendance = async (req, res) => {
+  try {
+    const record = await MeetAttendance.findOne({
+      meet: req.params.meetId,
+      student: req.user.id
+    });
+
+    res.json(record);
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
