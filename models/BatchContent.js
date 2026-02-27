@@ -23,19 +23,19 @@ const BatchContentSchema = new mongoose.Schema({
 
   /* REAL MATERIAL */
   title: String,
-materials: [
-  {
-    title: String,
-    type: {
-      type: String,
-      enum: ["video","pdf","link","notes"]
-    },
-    url: String,
-    duration: Number,
-    isPrimary: { type: Boolean, default: false }
-  }
-]
-,
+  materials: [
+    {
+      title: String,
+      type: {
+        type: String,
+        enum: ["video", "pdf", "link", "notes"]
+      },
+      url: String,
+      duration: Number,
+      isPrimary: { type: Boolean, default: false }
+    }
+  ]
+  ,
 
   contentUrl: String,
   duration: Number,
@@ -48,17 +48,17 @@ materials: [
 
   contentStatus: {
     type: String,
-    enum: ["scheduled","live","completed","cancelled"],
+    enum: ["scheduled", "live", "completed", "cancelled"],
     default: "scheduled"
   },
 
   recordingUrl: String,
 
   isFromTemplate: { type: Boolean, default: false },
-    isTemplateHidden: {
-        type: Boolean,
-        default: false
-    }
+  isTemplateHidden: {
+    type: Boolean,
+    default: false
+  }
 
 }, { timestamps: true });
 

@@ -4,7 +4,10 @@ const MeetAttendanceSchema = new mongoose.Schema({
   meet: { type: mongoose.Schema.Types.ObjectId, ref: "Meet", required: true },
   batch: { type: mongoose.Schema.Types.ObjectId, ref: "Batch", required: true },
   student: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-
+batchContent: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "BatchContent"
+},
   email: String,
 
   sessions: [

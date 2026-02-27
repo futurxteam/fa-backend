@@ -39,41 +39,49 @@ const calculateTotalWatchTime = (segments) => {
 
 export const saveProgress = async (req, res) => {
   try {
-    const { contentId, currentTime, duration, watchedSegment } = req.body;
-    const studentId = req.user._id;
+const {
+  contentId,
+  batchContentId,
+  batchModuleId,
+  currentTime,
+  duration,
+  watchedSegment
+} = req.body;    const studentId = req.user._id;
 
-  let content = await Content.findById(contentId);
+let content;
 
-// ⭐ if not recorded content → try batch content
-if (!content) {
-  content = await BatchContent.findById(contentId);
+if (batchContentId) {
+  content = await BatchContent.findById(batchContentId);
+} else {
+  content = await Content.findById(contentId);
 }
 
 if (!content) {
   return res.status(404).json({ message: "Content not found" });
 }
-
     // =========================
     // 1️⃣ SAVE BASIC PROGRESS
     // =========================
-    const update = {
-      lastPosition: currentTime,
-      duration: duration
-    };
+ 
+const isLive = !!batchContentId;
+const query = isLive
+  ?{ student: studentId, batchContent: batchContentId }
+  : { student: studentId, content: contentId };
 
-    if (
-      watchedSegment &&
-      Array.isArray(watchedSegment) &&
-      watchedSegment.length === 2
-    ) {
-      update.$push = { watchedSegments: watchedSegment };
-    }
+let progress = await ContentProgress.findOneAndUpdate(
+  query,
+  {
+    student: studentId,
+    content: isLive ? null : contentId,
+    batchContent: isLive ? batchContentId : null,
+    batchModule: isLive ? batchModuleId : null,
+    lastPosition: currentTime,
+    duration,
+    ...(watchedSegment ? { $push: { watchedSegments: watchedSegment } } : {})
+  },
+  { new: true, upsert: true }
+);
 
-    let progress = await ContentProgress.findOneAndUpdate(
-      { student: studentId, content: contentId },
-      update,
-      { new: true, upsert: true }
-    );
 
     // =========================
     // 2️⃣ MERGE SEGMENTS
@@ -108,19 +116,22 @@ if (content.module) {
   });
 } else if (content.batchModule) {
   // ⭐ live
-  moduleVideos = await BatchContent.find({
-    batchModule: content.batchModule,
-    contentType: "video"
-  });
+ moduleVideos = await BatchContent.find({
+  batch: content.batch,
+  batchModule: content.batchModule,
+  contentType: "video"
+});
 }
 
       const videoIds = moduleVideos.map(v => v._id);
 
-      const completedVideos = await ContentProgress.find({
-        student: studentId,
-        content: { $in: videoIds },
-        completed: true
-      });
+    const completedVideos = await ContentProgress.find({
+  student: studentId,
+  ...(content.module
+    ? { content: { $in: videoIds } }
+    : { batchContent: { $in: videoIds } }),
+  completed: true
+});
 
       if (
         moduleVideos.length > 0 &&
@@ -144,6 +155,7 @@ if (content.batchModule) {
     { $addToSet: { completedBatchModules: content.batchModule } }
   );
 }
+
       }
     }
 

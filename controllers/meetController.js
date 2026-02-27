@@ -198,11 +198,9 @@ export const meetLeave = async (req, res) => {
 };
 
 
-
-/* ================= JOIN ================= */
 export const markMeetJoin = async (req, res) => {
   try {
-    const { meetId, batchId } = req.body;
+    const { meetId, batchId, batchModuleId, batchContentId } = req.body; // ⭐ FIX
     const studentId = req.user.id;
 
     let record = await MeetAttendance.findOne({
@@ -210,22 +208,33 @@ export const markMeetJoin = async (req, res) => {
       student: studentId
     });
 
+    /* ================= CREATE ================= */
     if (!record) {
       record = await MeetAttendance.create({
         meet: meetId,
         batch: batchId,
         student: studentId,
+        batchModule: batchModuleId,     // ⭐ SAVE
+        batchContent: batchContentId,   // ⭐ SAVE
         sessions: [{ joinTime: new Date() }]
       });
 
       return res.json({ message: "Join recorded" });
     }
 
+    /* ================= PREVENT DUP JOIN ================= */
     const lastSession = record.sessions[record.sessions.length - 1];
-
-    /* ⭐ IMPORTANT — prevent duplicate join */
     if (lastSession && !lastSession.leaveTime) {
       return res.json({ message: "Already joined" });
+    }
+
+    /* ================= BACKFILL (important) ================= */
+    if (!record.batchContent && batchContentId) {
+      record.batchContent = batchContentId;
+    }
+
+    if (!record.batchModule && batchModuleId) {
+      record.batchModule = batchModuleId;
     }
 
     record.sessions.push({ joinTime: new Date() });

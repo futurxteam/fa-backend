@@ -14,6 +14,8 @@ import batchContentRoutes from './routes/batchContentRoutes.js';
 import studentLiveRoute from './routes/studentLiveRoute.js';
 import meetRoutes from './routes/meetRoutes.js';
 import enrollmentRouteadmin from './routes/enrollmentRouteadmin.js';
+import timetableRoutes from './routes/timetableRoutes.js';
+import AssignmentRoute from './routes/assignmentRoute.js';
 dotenv.config();
 
 const app = express();
@@ -38,6 +40,8 @@ app.use('/api/batch-content', batchContentRoutes);
 app.use('/api/student', studentLiveRoute);
 app.use('/api/meet', meetRoutes);
 app.use('/api/enrollment', enrollmentRouteadmin);
+app.use('/api/timetable', timetableRoutes);
+app.use('/api/assignment', AssignmentRoute);
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));

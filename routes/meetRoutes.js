@@ -27,7 +27,7 @@ router.get(
 router.get(
   "/my/:meetId",
   authenticate,
-  authorize("student"),
+  authorize("student,admin,faculty"),
   getStudentMeetAttendance
 );
 export default router;

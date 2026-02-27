@@ -1,12 +1,15 @@
+import mongoose from "mongoose";
 import Batch from "../models/Batch.js";
 import Module from "../models/Module.js";
 import Content from "../models/Content.js";
 import BatchModule from "../models/BatchModule.js";
 import Assessment from "../models/Assessment.js";
-
+import Attendance from "../models/Attendance.js";
 import Enrollment from "../models/Enrollment.js";
-
+import MeetAttendance from "../models/MeetAttendance.js";
 import BatchContent from "../models/BatchContent.js";
+import ContentProgress from "../models/ContentProgress.js";
+
 export const getPublishedLiveCourses = async (req, res) => {
   try {
     const batches = await Batch.find({
@@ -294,5 +297,210 @@ export const getStudentBatchAssessments = async (req, res) => {
 
   } catch (e) {
     res.status(500).json({ message: e.message });
+  }
+};
+
+
+export const getAttendanceByStudentAndBatch = async (req, res) => {
+  try {
+    const { studentId, batchId } = req.params;
+    const { batchModuleId } = req.query; // ⭐ optional
+
+    if (!studentId || !batchId) {
+      return res.status(400).json({
+        success: false,
+        message: "studentId and batchId required"
+      });
+    }
+
+    /* ⭐ dynamic filter */
+    const filter = {
+      student: studentId,
+      batch: batchId
+    };
+
+    /* ⭐ if module provided → add filter */
+    if (batchModuleId) {
+      filter.batchModule = batchModuleId;
+    }
+
+    const attendance = await Attendance.find(filter)
+      .populate("batchContent", "title duration type order")
+      .populate("batchModule", "title order")
+      .populate("meet", "startTime endTime status")
+      .sort({ createdAt: 1 });
+
+    res.json({
+      success: true,
+      count: attendance.length,
+      data: attendance
+    });
+
+  } catch (err) {
+    console.error("Get attendance error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch attendance"
+      
+      
+    });
+    console.log(err);
+  }
+};
+
+
+export const getMeetAttendanceByStudentAndDate = async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { date } = req.query;
+
+    if (!studentId || !date) {
+      return res.status(400).json({
+        success: false,
+        message: "studentId and date required"
+      });
+    }
+
+    /* ⭐ build day range */
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+
+    const records = await MeetAttendance.find({
+      student: studentId,
+      sessions: {
+        $elemMatch: {
+          joinTime: { $gte: start, $lte: end }
+        }
+      }
+    })
+      .populate("meet", "title startTime endTime status")
+      .populate("batch", "batchName")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: records.length,
+      data: records
+    });
+
+  } catch (err) {
+    console.error("Meet attendance error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch meet attendance"
+    });
+  }
+};
+
+export const getBatchModuleProgress = async (req, res) => {
+  try {
+    const { batchModuleId } = req.params;
+    const { batchContentId, studentId } = req.query;   // ⭐ ADD
+
+    if (!studentId) {
+      return res.status(400).json({ message: "studentId required" });
+    }
+
+    const query = {
+      student: new mongoose.Types.ObjectId(studentId),
+      batchModule: new mongoose.Types.ObjectId(batchModuleId)
+    };
+
+    if (batchContentId) {
+      query.batchContent = new mongoose.Types.ObjectId(batchContentId);
+    }
+
+    const progress = await ContentProgress.find(query);
+
+    res.json({ count: progress.length, data: progress });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch progress" });
+  }
+};
+
+export const markAttendance = async (req, res) => {
+  try {
+    const {
+      studentId,
+      batchId,
+      batchModuleId,
+      batchContentId,
+      date,
+      sessionNo,
+      source,
+      meetId,
+      watchTimeSeconds,
+      liveDurationSeconds,
+      status
+    } = req.body;
+
+    if (!studentId || !batchId || !batchContentId || !source) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const classDate = new Date(date || new Date());
+    classDate.setHours(0,0,0,0);
+
+    /* ⭐ 1. find or create attendance session */
+    let attendance = await Attendance.findOne({
+      batch: batchId,
+      date: classDate,
+      batchContent: batchContentId
+    });
+
+    if (!attendance) {
+      attendance = await Attendance.create({
+        batch: batchId,
+        date: classDate,
+        batchModule: batchModuleId,
+        batchContent: batchContentId,
+        sessionNo,
+        students: []
+      });
+    }
+
+    /* ⭐ 2. build student entry */
+    const studentEntry = {
+      student: studentId,
+      status: status || "present",
+      source,
+      meet: source === "live" ? meetId || null : null,
+      watchTimeSeconds: watchTimeSeconds || 0,
+      liveDurationSeconds: liveDurationSeconds || 0
+    };
+
+    /* ⭐ add TIME (this is what you want) */
+    if (source === "live") {
+      studentEntry.joinTime = new Date();
+      studentEntry.leaveTime = new Date();
+    }
+
+    if (source === "recorded") {
+      studentEntry.recordedAt = new Date();
+    }
+
+    /* ⭐ 3. upsert inside students array */
+    const existingIndex = attendance.students.findIndex(
+      s => s.student.toString() === studentId
+    );
+
+    if (existingIndex >= 0) {
+      attendance.students[existingIndex] = studentEntry;
+    } else {
+      attendance.students.push(studentEntry);
+    }
+
+    await attendance.save();
+
+    res.json(attendance);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to mark attendance" });
   }
 };

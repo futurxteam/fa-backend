@@ -11,6 +11,16 @@ const ContentProgressSchema = new mongoose.Schema({
         ref: 'Content',
         required: true
     },
+      /* ⭐ LIVE (IMPORTANT) */
+  batchContent: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BatchContent'
+  },
+
+  batchModule: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BatchModule'
+  },
     lastPosition: {
         type: Number,
         default: 0,

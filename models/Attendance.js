@@ -1,11 +1,48 @@
 import mongoose from "mongoose";
 
-const attendanceSchema = new mongoose.Schema(
-{
-  /* ⭐ CORE RELATION */
+const studentAttendanceSchema = new mongoose.Schema({
+  student: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+
+  status: {
+    type: String,
+    enum: ["present", "partial", "absent"],
+    default: "present"
+  },
+
+  source: {
+    type: String,
+    enum: ["live", "recorded", "manual"],
+    required: true
+  },
+
+  meet: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Meet",
+    default: null
+  },
+  joinTime: Date,
+leaveTime: Date,
+recordedAt: Date,
+
+  watchTimeSeconds: { type: Number, default: 0 },
+  liveDurationSeconds: { type: Number, default: 0 }
+
+}, { _id: false });
+
+
+const attendanceSchema = new mongoose.Schema({
   batch: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Batch",
+    required: true
+  },
+
+  date: {
+    type: Date,
     required: true
   },
 
@@ -15,73 +52,20 @@ const attendanceSchema = new mongoose.Schema(
     required: true
   },
 
-  /* ⭐ LESSON (MOST IMPORTANT) */
   batchContent: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "BatchContent",
     required: true
   },
 
-  student: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true
-  },
+  sessionNo: Number,
 
-  /* ⭐ SOURCE */
-  source: {
-    type: String,
-    enum: ["live", "recorded", "manual"],
-    required: true
-  },
+  students: [studentAttendanceSchema]
 
-  /* ⭐ OPTIONAL — LIVE CLASS */
-  meet: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Meet",
-    default: null
-  },
+}, { timestamps: true });
 
-  /* ⭐ LIVE TIMINGS */
-  joinTime: Date,
-  leaveTime: Date,
-  liveDurationSeconds: {
-    type: Number,
-    default: 0
-  },
-
-  /* ⭐ RECORDED PROGRESS */
-  watchTimeSeconds: {
-    type: Number,
-    default: 0
-  },
-
-  completionPercent: {
-    type: Number,
-    default: 0
-  },
-
-  /* ⭐ FINAL STATUS */
-  status: {
-    type: String,
-    enum: ["present", "partial", "absent"],
-    default: "present"
-  },
-
-  /* ⭐ FLAGS */
-  countedForCertificate: {
-    type: Boolean,
-    default: true
-  }
-
-},
-{ timestamps: true }
-);
-
-
-/* ⭐ VERY IMPORTANT — SINGLE ATTENDANCE PER LESSON */
 attendanceSchema.index(
-  { student: 1, batchContent: 1 },
+  { batch: 1, date: 1, batchContent: 1 },
   { unique: true }
 );
 
